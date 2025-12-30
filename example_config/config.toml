@@ -2,7 +2,7 @@
 # This is an example configuration file for the TETRA base station stack
 # DO NOT RUN without editing to stay within legal limits of your jurisdiction
 
-config_version = "0.3"
+config_version = "0.4"
 
 # Stack operation mode: "Bs" (Base Station), "Ms" (Mobile Station), or "Mon" (Monitor)
 stack_mode = "Bs"
@@ -84,11 +84,12 @@ mnc = 1337
 # These parameters specify the DL and UL frequencies
 # Read the spec if in doubt. Make sure these match the tx/rx freqs as given above
 # See ETSI TS 100 392-15 V1.5.1 Clause 6: Duplex spacing
-freq_band = 4               # 400MHz band
-main_carrier = 1521         # + 1521 * 25kHz = 38250kHz
-duplex_spacing = 4          # Use 5MHz spacing between ul and dl (for 400 MHz band)
-freq_offset = 0             # No further offset to the ul/dl frequencies
-reverse_operation = false   # UL = DL - duplex_spacing
+freq_band = 4                       # 400MHz band
+main_carrier = 1521                 # + 1521 * 25kHz = 38250kHz
+duplex_spacing = 4                  # Use 5MHz spacing between ul and dl (for 400 MHz band)
+# custom_duplex_spacing = 76000000  # Don't uncomment unless you have programmed a custom duplex spacing entry in your radios
+freq_offset = 0                     # Offset from carrier. Usually 0. Options: 0, 6250, -6250, 12500. 
+reverse_operation = false           # False: UL below DL. True: UL above DL. 
 
 # Location Area identifier
 location_area = 2

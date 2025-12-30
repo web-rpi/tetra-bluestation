@@ -790,7 +790,7 @@ mod tests {
         let sysinfo1 = MacSysinfo {
             main_carrier: 1001,
             freq_band: 4,
-            freq_offset: 0,
+            freq_offset_index: 0,
             duplex_spacing: 0,
             reverse_operation: false,
             num_of_csch: 0,
@@ -809,7 +809,7 @@ mod tests {
         let sysinfo2 = MacSysinfo {
             main_carrier: sysinfo1.main_carrier,
             freq_band: sysinfo1.freq_band,
-            freq_offset: sysinfo1.freq_offset,
+            freq_offset_index: sysinfo1.freq_offset_index,
             duplex_spacing: sysinfo1.duplex_spacing,
             reverse_operation: sysinfo1.reverse_operation,
             num_of_csch: sysinfo1.num_of_csch,

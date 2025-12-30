@@ -1,5 +1,3 @@
-// TODO FIXME actually match all this against the standard
-
 use serde::Deserialize;
 
 /// ETSI TS 100 392-15 V1.5.1 (2011-02), clause 6: Duplex spacing
@@ -14,157 +12,141 @@ const TETRA_DUPLEX_SPACING: [[Option<u32>; 16]; 8] = [
     [ None,    None,       None,        None,        None,        None,        None,        None,        None,        None,        None,    None,    None,    None,    None,    None ],
 ];
 
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct FreqInfo {
     /// Frequency band in 100MHz increments
     pub band: u8,
     /// Carrier number, 0-4000
     pub carrier: u16,
-    /// Frequency offset in Hz, can be negative.
-    pub freq_offset: i32,
-    /// Duplex spacing in Hz, aka, distance UL is below DL freq
-    pub duplex_spacing: u32,
+    /// Frequency offset from 25 kHz aligned carrier. In Hz, -6500, 0, 6250, 12500
+    pub freq_offset_hz: i16,
+    /// Duplex spacing setting (index in duplex spacing table)
+    pub duplex_spacing_id: u8,
+    /// Duplex spacing in Hz. Usually taken from duplex spacing table, 
+    /// but can be overridden if clients use a custom duplex spacing table. 
+    pub duplex_spacing_val: u32,
     /// Reverse operation flag, if true, UL is above DL frequency
     pub reverse_operation: bool,
 }
 
 impl FreqInfo {
 
-    /// Construct FreqInfo based on DL frequency, duplex spacing and reverse operation flag.
-    pub fn from_dlfreq(freq: u32, duplex_spacing: u32, reverse_operation: bool) -> Result<Self, String> {
-
-        if freq % 6250 != 0 {
-            return Err(format!("Invalid frequency {}", freq));
+    pub fn freq_offset_id_to_hz(offset_index: u8) -> Option<i16> {
+        match offset_index {
+            0 => Some(0),
+            1 => Some(6250),
+            2 => Some(-6250),
+            3 => Some(12500),
+            _ => None,
         }
-
-        let band = freq / 100000000;
-        let remainder = freq % 100000000;
-        let mut carrier = remainder / 25000;
-        let freq_offset = match remainder % 25000 {
-            0 => 0,
-            6250 => 6250,
-            18750 => {
-                carrier += 1; // Adjust carrier for negative offset
-                -6250
-            },
-            12500 => 12500,
-            _ => return Err(format!("Invalid frequency offset in frequency {}", freq))
-        };
-        if !(1..=8).contains(&band) {
-            return Err(format!("Invalid frequency band {}", band)); 
-        };
-        if carrier >= 4000 {
-            return Err(format!("Invalid carrier number {}", carrier));
-        };
-
-        let ret = Self {
-            band: band as u8,
-            carrier: carrier as u16,
-            freq_offset,
-            duplex_spacing,
-            reverse_operation,
-        };
-
-        Ok(ret)
     }
 
-    /// Construct freqinfo based on DL and UL frequencies
-    pub fn from_dlul_freqs(dlfreq: u32, ulfreq: u32) -> Result<Self, String> {
-        let (reverse_operation, duplex_spacing) = if ulfreq < dlfreq {
-            (false, dlfreq - ulfreq)
-        } else {
-            (true, ulfreq - dlfreq)
-        };
-
-        Self::from_dlfreq(dlfreq, duplex_spacing, reverse_operation)
+    pub fn freq_offset_hz_to_id(offset_hz: i16) -> Option<u8> {
+        match offset_hz {
+            0 => Some(0),
+            6250 => Some(1),
+            -6250 => Some(2),
+            12500 => Some(3),
+            _ => None,
+        }
     }
 
-    /// Construct FreqInfo from band, carrier, frequency offset, duplex spacing and reverse operation flag.
-    pub fn from_components(band: u8, carrier: u16, freq_offset: i32, duplex_spacing: u32, reverse_operation: bool) -> Result<Self, String> {
+    // /// Construct FreqInfo based on DL frequency, duplex spacing and reverse operation flag.
+    // pub fn from_dlfreq(freq: u32, reverse_operation: bool, duplex_spacing_setting: u8, duplex_hz: Option<u32>) -> Result<Self, String> {
+
+    //     if freq % 6250 != 0 {
+    //         return Err(format!("Invalid frequency {}", freq));
+    //     }
+
+    //     let band = freq / 100000000;
+    //     if band > 8 {
+    //         return Err(format!("Invalid frequency band {}", band)); 
+    //     };
+        
+    //     let mut remainder = freq as i32 % 100000000;
+    //     let mut carrier = remainder / 25000;
+    //     if remainder == 18750 {
+    //         carrier += 1; // Adjust carrier for negative offset
+    //         remainder -= 25000; // Remainder becomes -6250
+    //     };
+    //     if carrier >= 4000 {
+    //         return Err(format!("Invalid carrier number {}", carrier));
+    //     };
+
+    //     let Some(freq_offset_setting) = Self::freq_offset_hz_to_val(remainder) else {
+    //         return Err(format!("Invalid frequency offset in frequency {}", freq));
+    //     };
+
+    //     let ret = Self {
+    //         band: band as u8,
+    //         carrier: carrier as u16,
+    //         freq_offset_index: freq_offset_setting,
+    //         duplex_spacing_: duplex_spacing_setting,
+    //         duplex_spacing_override: None,
+    //         reverse_operation,
+    //     };
+
+    //     Ok(ret)
+    // }
+
+    // /// Construct freqinfo based on DL and UL frequencies
+    // pub fn from_dlul_freqs(dlfreq: u32, ulfreq: u32) -> Result<Self, String> {
+    //     let (reverse_operation, duplex_spacing) = if ulfreq < dlfreq {
+    //         (false, dlfreq - ulfreq)
+    //     } else {
+    //         (true, ulfreq - dlfreq)
+    //     }
+
+    //     let duplex_spacing_setting = Self::freq_offset_hz_to_val(offset_hz)
+
+    //     Self::from_dlfreq(dlfreq, reverse_operation, duplex_spacing, None)
+    // }
+
+    /// Construct FreqInfo from band, carrier, frequency offset, duplex spacing index and reverse operation flag.
+    /// Optionally accepts a custom duplex spacing value in Hz, if a duplex spacing table is used by the radios.
+    pub fn from_components(band: u8, carrier: u16, freq_offset_val: i16, reverse_operation: bool, duplex_index: u8, custom_duplex_spacing: Option<u32>) -> Result<Self, String> {
         assert!(band <= 8, "Invalid frequency band {}", band);
         assert!(carrier < 4000, "Invalid carrier number {}", carrier);
-        assert!(freq_offset == 0 || freq_offset == 6250 || freq_offset == -6250 || freq_offset == 12500, "Invalid frequency offset {}", freq_offset);
-        assert!(Self::get_duplex_setting(band, duplex_spacing).is_ok(), "Invalid duplex spacing for band {}, carrier {}, freq_offset {}", band, carrier, freq_offset);
-        
+        assert!(freq_offset_val == 0 || freq_offset_val == 6250 || freq_offset_val == -6250 || freq_offset_val == 12500, "Invalid frequency offset {}", freq_offset_val);
+        let duplex_spacing_val = if let Some(cds) = custom_duplex_spacing {
+            cds
+        } else {
+            Self::get_default_duplex_spacing(band, duplex_index).ok_or_else(|| format!("Invalid duplex spacing for band {}, duplex index {}", band, duplex_index))?
+        };
+
         Ok(Self {
             band,
             carrier,
-            freq_offset,
-            duplex_spacing,
+            freq_offset_hz: freq_offset_val,
+            duplex_spacing_id: duplex_index,
+            duplex_spacing_val,
             reverse_operation,
         })
     }
 
-    pub fn from_sysinfo_settings(band: u8, carrier: u16, freq_offset_setting: u8, duplex_setting: u8, reverse_operation: bool) -> Result<Self, String> {
-        assert!(band <= 8, "Invalid frequency band {}", band);
-        assert!(carrier < 4000, "Invalid carrier number {}", carrier);
+    /// Get the standardized duplex spacing in hz for the current frequency band and a given 
+    /// duplex spacing table index, as given in the Sysinfo message
+    pub fn get_default_duplex_spacing(band: u8, duplex_setting: u8) -> Option<u32> {
         assert!(duplex_setting < 8, "Invalid duplex setting {}", duplex_setting);
-
-        let duplex_spacing = Self::get_duplex_spacing(band, duplex_setting).expect("Invalid duplex spacing for band and duplex setting");
-
-        let freq_offset = match freq_offset_setting {
-            0 => 0,
-            1 => 6250,
-            2 => -6250,
-            3 => 12500,
-            _ => panic!("Invalid frequency offset setting {}", freq_offset_setting),
-        };
-
-        Self::from_components(band, carrier, freq_offset, duplex_spacing, reverse_operation)
-    }
-
-    /// Get the frequency offset setting as used in Sysinfo message
-    pub fn get_freq_offset_setting(&self) -> u8 {
-        match self.freq_offset {
-            0 => 0,
-            6250 => 1,
-            -6250 => 2,
-            12500 => 3,
-            _ => panic!("Invalid frequency offset {}", self.freq_offset),
-        }
-    }
-
-    /// Get the duplex spacing in hz for the current frequency band and a given duplex setting, as given in the Sysinfo message
-    pub fn get_duplex_spacing(band: u8, duplex_setting: u8) -> Option<u32> {
-        
-        assert!(duplex_setting < 8, "Invalid duplex setting {}", duplex_setting);
-        
         let duplex_spacing = TETRA_DUPLEX_SPACING[duplex_setting as usize][band as usize];
         duplex_spacing.map(|v| v * 1000)
     }
 
-    /// Get the duplex setting as used in Sysinfo for a given frequency band and duplex spacing.
-    pub fn get_duplex_setting(band: u8, duplex_spacing: u32) -> Result<u8, String> {
-        assert!(band < 16, "Invalid frequency band {}", band);
-        assert!(duplex_spacing % 1000 == 0, "Invalid duplex spacing {}", duplex_spacing);
-        for (duplex_setting, spacing_vals) in TETRA_DUPLEX_SPACING.iter().enumerate() {
-            let spacing = spacing_vals[band as usize];
-            if let Some(s) = spacing {
-                if s * 1000 == duplex_spacing {
-                    return Ok(duplex_setting as u8);
-                }
-            }
-        }
-                
-        Err(format!("Invalid duplex spacing {} for band {}", duplex_spacing, band))
-    }
+    /// Get the downlink and uplink frequencies for this instance
+    pub fn get_freqs(&self) -> (u32, u32) {
+        // Compute dlfreq
+        let mut dl_freq = 100000000 * self.band as i32;
+        dl_freq += self.carrier as i32 * 25000;
+        dl_freq += self.freq_offset_hz as i32;
+        let dl_freq = dl_freq as u32;        
 
-    /// Compute the DlFreq for this frequency info instance
-    pub fn get_dl_freq(&self) -> u32 {
-        let mut freq = 100000000 * self.band as i32;
-        freq += self.carrier as i32 * 25000;
-        freq += self.freq_offset;
-        freq as u32
-    }
-
-    pub fn get_ul_freq(&self) -> u32 {
-        let dl_freq = self.get_dl_freq();
-        if !self.reverse_operation {
-            dl_freq - self.duplex_spacing
+        // Derive ulfreq
+        let ul_freq = if !self.reverse_operation {
+            dl_freq - self.duplex_spacing_val
         } else {
-            dl_freq + self.duplex_spacing
-        }
+            dl_freq + self.duplex_spacing_val
+        };
+        (dl_freq, ul_freq)
     }
 }
 
@@ -174,38 +156,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_freqinfo_from_dlfreq_and_ul_freq() {
+    fn test_freqinfo_from_components() {
         let freq = 400_000_000 + 1001 * 25_000;
+        let duplex_index = 0;
         let duplex_spacing = 10000000;
         let reverse_operation = false;
-        let fi = FreqInfo::from_dlfreq(freq, duplex_spacing, reverse_operation).unwrap(); // testing
+        let band = 4;
+        let carrier = 1001;
+        let freq_offset = 0;
+        
+        let f1 = FreqInfo::from_components(band, carrier, freq_offset, reverse_operation, duplex_index, None).unwrap();
+        let (dlfreq, ulfreq) = f1.get_freqs();
 
-        assert_eq!(fi.band, 4);
-        assert_eq!(fi.carrier, 1001);
-        assert_eq!(fi.freq_offset, 0);
-        assert_eq!(fi.duplex_spacing, 10_000_000);
-        assert!(!fi.reverse_operation);
-
-        println!("DL freq: {}", fi.get_dl_freq());
-        println!("UL freq: {}", fi.get_ul_freq());
-
-        let fi2 = FreqInfo::from_components(fi.band, fi.carrier, fi.freq_offset, duplex_spacing, reverse_operation).unwrap(); // testing
-        assert_eq!(fi.get_dl_freq(), freq);
-
-        // UL freq should be DL freq + duplex_spacing
-        assert_eq!(fi.get_ul_freq(), freq - duplex_spacing);
-
-        // Test duplex spacing / setting
-        assert_eq!(FreqInfo::get_duplex_setting(fi.band, 0).unwrap(), 2);
-        assert_eq!(FreqInfo::get_duplex_spacing(1, 0).unwrap(), 1600000);
-
-        assert_eq!(fi.band, fi2.band);
-        assert_eq!(fi.carrier, fi2.carrier);
-        assert_eq!(fi.freq_offset, fi2.freq_offset);
-        assert_eq!(fi.duplex_spacing, fi2.duplex_spacing);
-        assert_eq!(fi.reverse_operation, fi2.reverse_operation);
-
-        // Test impossible duplex spacing
-        assert!(FreqInfo::get_duplex_spacing(1, 7).is_none());
+        assert_eq!(f1.band, band);
+        assert_eq!(f1.carrier, carrier);
+        assert_eq!(f1.freq_offset_hz, freq_offset);
+        assert_eq!(f1.duplex_spacing_val, duplex_spacing);
+        assert_eq!(f1.duplex_spacing_id, duplex_index);
+        assert!(!f1.reverse_operation);
+        assert_eq!(freq, dlfreq);
+        assert_eq!(dlfreq - duplex_spacing, ulfreq);
+        assert!(!f1.reverse_operation);
     }
 }

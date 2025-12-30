@@ -1,5 +1,6 @@
 use std::panic;
 
+use crate::common::freqs::FreqInfo;
 use crate::common::messagerouter::MessageQueue;
 
 use crate::saps::tmv::enums::logical_chans::LogicalChannel;
@@ -119,8 +120,8 @@ impl UmacBs {
         let sysinfo1 = MacSysinfo {
             main_carrier: c.cell.main_carrier,
             freq_band: c.cell.freq_band,
-            freq_offset: c.cell.freq_offset,
-            duplex_spacing: c.cell.duplex_spacing_setting,
+            freq_offset_index: FreqInfo::freq_offset_hz_to_id(c.cell.freq_offset_hz).unwrap(),
+            duplex_spacing: c.cell.duplex_spacing_id,
             reverse_operation: c.cell.reverse_operation,
             num_of_csch: 0,
             ms_txpwr_max_cell: 5,
@@ -138,7 +139,7 @@ impl UmacBs {
         let sysinfo2 = MacSysinfo {
             main_carrier: sysinfo1.main_carrier,
             freq_band: sysinfo1.freq_band,
-            freq_offset: sysinfo1.freq_offset,
+            freq_offset_index: sysinfo1.freq_offset_index,
             duplex_spacing: sysinfo1.duplex_spacing,
             reverse_operation: sysinfo1.reverse_operation,
             num_of_csch: sysinfo1.num_of_csch,

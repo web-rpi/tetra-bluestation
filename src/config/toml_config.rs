@@ -17,7 +17,7 @@ pub fn from_toml_str(toml_str: &str) -> Result<SharedConfig, Box<dyn std::error:
     let root: TomlConfigRoot = toml::from_str(toml_str)?;
 
     // Various sanity checks
-    if !root.config_version.eq("0.3") {
+    if !root.config_version.eq("0.4") {
         tracing::warn!("Unrecognized config_version: {}", root.config_version);
     }
     if !root.extra.is_empty() {
@@ -153,6 +153,18 @@ fn apply_phy_io_patch(dst: &mut CfgPhyIo, src: PhyIoDto) {
 }
 
 fn apply_cell_info_patch(dst: &mut CfgCellInfo, ci: CellInfoDto) {
+
+    dst.main_carrier = ci.main_carrier;
+    dst.freq_band = ci.freq_band;
+    dst.freq_offset_hz = ci.freq_offset;
+    dst.duplex_spacing_id = ci.duplex_spacing;
+    dst.reverse_operation = ci.reverse_operation;
+    
+    // Option
+    dst.custom_duplex_spacing = ci.custom_duplex_spacing;
+
+    dst.location_area = ci.location_area;
+
     if let Some(v) = ci.neighbor_cell_broadcast {
         dst.neighbor_cell_broadcast = v;
     }
@@ -161,24 +173,6 @@ fn apply_cell_info_patch(dst: &mut CfgCellInfo, ci: CellInfoDto) {
     }
     if let Some(v) = ci.late_entry_supported {
         dst.late_entry_supported = v;
-    }
-    if let Some(v) = ci.main_carrier {
-        dst.main_carrier = v;
-    }
-    if let Some(v) = ci.freq_band {
-        dst.freq_band = v;
-    }
-    if let Some(v) = ci.freq_offset {
-        dst.freq_offset = v;
-    }
-    if let Some(v) = ci.duplex_spacing {
-        dst.duplex_spacing_setting = v;
-    }
-    if let Some(v) = ci.reverse_operation {
-        dst.reverse_operation = v;
-    }
-    if let Some(v) = ci.location_area {
-        dst.location_area = v;
     }
     if let Some(v) = ci.subscriber_class {
         dst.subscriber_class = v;
@@ -339,17 +333,23 @@ struct NetInfoDto {
 
 #[derive(Default, Deserialize)]
 struct CellInfoDto {
+
+    pub main_carrier: u16,
+    pub freq_band: u8,
+    pub freq_offset: i16,
+    pub duplex_spacing: u8,
+    pub reverse_operation: bool,
+    pub custom_duplex_spacing: Option<u32>,
+
+    pub location_area: u16,
+    
     pub neighbor_cell_broadcast: Option<u8>,
     pub cell_load_ca: Option<u8>,
     pub late_entry_supported: Option<bool>,
 
-    pub main_carrier: Option<u16>,
-    pub freq_band: Option<u8>,
-    pub freq_offset: Option<u8>,
-    pub duplex_spacing: Option<u8>,
-    pub reverse_operation: Option<bool>,
 
-    pub location_area: Option<u16>,
+    
+
     pub subscriber_class: Option<u16>,
 
     pub registration: Option<bool>,

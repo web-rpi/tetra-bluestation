@@ -16,7 +16,7 @@ pub struct MacSysinfo {
     // 4
     pub freq_band: u8,
     // 2
-    pub freq_offset: u8,
+    pub freq_offset_index: u8,
     // 3
     pub duplex_spacing: u8,
     // 1
@@ -53,7 +53,7 @@ impl MacSysinfo {
         let mut s = MacSysinfo {
             main_carrier: 0,
             freq_band: 0,
-            freq_offset: 0,
+            freq_offset_index: 0,
             duplex_spacing: 0,
             reverse_operation: false,
             num_of_csch: 0,
@@ -76,7 +76,7 @@ impl MacSysinfo {
 
         s.main_carrier = buf.read_field(12, "main_carrier")? as u16;
         s.freq_band = buf.read_field(4, "freq_band")? as u8;
-        s.freq_offset = buf.read_field(2, "freq_offset")? as u8;
+        s.freq_offset_index = buf.read_field(2, "freq_offset")? as u8;
         s.duplex_spacing = buf.read_field(3, "duplex_spacing")? as u8;
         s.reverse_operation = buf.read_field(1, "reverse_operation")? != 0;
         s.num_of_csch = buf.read_field(2, "num_of_csch")? as u8;
@@ -127,7 +127,7 @@ impl MacSysinfo {
 
         buf.write_bits(self.main_carrier as u64, 12);
         buf.write_bits(self.freq_band as u64, 4);
-        buf.write_bits(self.freq_offset as u64, 2);
+        buf.write_bits(self.freq_offset_index as u64, 2);
         buf.write_bits(self.duplex_spacing as u64, 3);
         buf.write_bits(self.reverse_operation as u8 as u64, 1);
         buf.write_bits(self.num_of_csch as u64, 2);
@@ -181,7 +181,7 @@ impl fmt::Display for MacSysinfo {
             "macpdu_sysinfo {{\n  main_carrier: {}\n  freq_band: {}\n  freq_offset: {}\n  duplex_spacing: {}\n  reverse_operation: {}\n  num_of_csch: {}\n  ms_txpwr_max_cell: {}\n  rxlev_access_min: {}\n  access_parameter: {}\n  radio_dl_timeout: {}\n",
             self.main_carrier,
             self.freq_band,
-            self.freq_offset,
+            self.freq_offset_index,
             self.duplex_spacing,
             self.reverse_operation,
             self.num_of_csch,

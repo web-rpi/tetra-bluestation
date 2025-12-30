@@ -69,12 +69,17 @@ pub struct CfgCellInfo {
     /// 4 bits, from MAC SYSINFO
     #[serde(default = "default_freq_band")]
     pub freq_band: u8,
-    /// 2 bits, from MAC SYSINFO
+    /// Offset in Hz from 25kHz aligned carrier. Options: 0, 6250, -6250, 12500 Hz
+    /// Represented as 0-3 in SYSINFO
     #[serde(default)]
-    pub freq_offset: u8,
-    /// 3 bits, from MAC SYSINFO
+    pub freq_offset_hz: i16,
+    /// Index in duplex setting table. Sent in SYSINFO. Maps to a specific duplex spacing in Hz.
+    /// Custom spacing can be provided optionally by setting 
     #[serde(default)]
-    pub duplex_spacing_setting: u8,
+    pub duplex_spacing_id: u8,
+    /// Custom duplex spacing in Hz, for users that use a modified, non-standard duplex spacing table. 
+    #[serde(default)]
+    pub custom_duplex_spacing: Option<u32>,
     /// 1 bits, from MAC SYSINFO
     #[serde(default)]
     pub reverse_operation: bool,
@@ -130,8 +135,9 @@ impl Default for CfgCellInfo {
         Self {
             freq_band: default_freq_band(),
             main_carrier: default_main_carrier(),
-            freq_offset: 0,
-            duplex_spacing_setting: 0,
+            freq_offset_hz: 0,
+            duplex_spacing_id: 0,
+            custom_duplex_spacing: None,
             reverse_operation: false,
 
             neighbor_cell_broadcast: 0,
@@ -232,36 +238,30 @@ impl StackConfig {
         if self.phy_io.backend == PhyBackend::SoapySdr {
             let soapy_cfg = self.phy_io.soapysdr.as_ref().expect("SoapySdr config must be set for SoapySdr PhyIo");
 
-            let Ok(f1) = FreqInfo::from_dlul_freqs(soapy_cfg.dl_freq as u32, soapy_cfg.ul_freq as u32) else {
-                return Err("Invalid PhyIo DL/UL frequencies (can't map to TETRA SYSINFO settings)");
-            };
-            let     Ok(f2) = FreqInfo::from_sysinfo_settings(
+            // let Ok(freqinfo) = FreqInfo::from_dlul_freqs(soapy_cfg.dl_freq as u32, soapy_cfg.ul_freq as u32) else {
+            //     return Err("Invalid PhyIo DL/UL frequencies (can't map to TETRA SYSINFO settings)");
+            // };
+            let     Ok(freq_info) = FreqInfo::from_components(
                     self.cell.freq_band, 
                     self.cell.main_carrier, 
-                    self.cell.freq_offset, 
-                    self.cell.duplex_spacing_setting,
-                    self.cell.reverse_operation) else {
+                    self.cell.freq_offset_hz, 
+                    self.cell.reverse_operation,
+                    self.cell.duplex_spacing_id,
+                    self.cell.custom_duplex_spacing) else {
                 return Err("Invalid cell info frequency settings");
             };
 
-            tracing::debug!("PhyIo FreqInfo::from_dlul_freqs:       {:?}", f1);
-            // tracing::debug!("PhyIo FreqInfo::from_sysinfo_settings: {:?}", f2);
+            let (dlfreq, ulfreq) = freq_info.get_freqs();
+            
+            tracing::debug!("FreqInfo::from_components:       {:?}", freq_info);
+            tracing::debug!("Derived DL freq: {} Hz, UL freq: {} Hz", dlfreq, ulfreq);
 
-            if f1.band != f2.band {
-                return Err("PhyIo Tx frequency band does not match cell info band");
+            if soapy_cfg.dl_freq as u32 != dlfreq {
+                return Err("PhyIo DlFrequency does not match computed FreqInfo");
             };
-            if f1.carrier != f2.carrier {
-                return Err("PhyIo Tx frequency carrier does not match cell info carrier");
+            if soapy_cfg.ul_freq as u32 != ulfreq {
+                return Err("PhyIo UlFrequency does not match computed FreqInfo");
             };
-            if f1.freq_offset != f2.freq_offset {
-                return Err("PhyIo Tx frequency offset does not match cell info offset");
-            };
-            if f1.reverse_operation != f2.reverse_operation {
-                return Err("PhyIo Tx frequency reverse operation does not match cell info reverse operation");
-            };
-            if f1.duplex_spacing != f2.duplex_spacing {
-                return Err("PhyIo Tx frequency duplex spacing does not match cell info duplex spacing");
-            }
         }
 
         Ok(())

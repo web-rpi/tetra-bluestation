@@ -26,22 +26,15 @@ use super::sink::Sink;
 /// before passing it to the ComponentTest constructor
 pub fn default_test_config(stack_mode: StackMode) -> StackConfig {
     let net_info = CfgNetInfo { mcc: 204, mnc: 1337 };
+    let freq_info = FreqInfo::from_components(4, 1521, 0, false, 4, None).unwrap();
     let mut cell_info = CfgCellInfo::default();
-
-    // HAM range in many countries
-    const DL_FREQ: f64 = 438.025e6;
-    const UL_FREQ: f64 = DL_FREQ - 5.0e6;
-    let Ok(freqinfo) = FreqInfo::from_dlul_freqs(DL_FREQ as u32, UL_FREQ as u32) else {
-        panic!("Invalid DL/UL frequencies");
-    };
-
     cell_info.colour_code = 1;
     cell_info.location_area = 2;
-    cell_info.main_carrier = freqinfo.carrier;
-    cell_info.freq_band = freqinfo.band;
-    cell_info.freq_offset = 0; // TODO FIXME
-    cell_info.duplex_spacing_setting = FreqInfo::get_duplex_setting(freqinfo.band, freqinfo.duplex_spacing).unwrap();
-    cell_info.reverse_operation = freqinfo.reverse_operation;
+    cell_info.main_carrier = freq_info.carrier;
+    cell_info.freq_band = freq_info.band;
+    cell_info.freq_offset_hz = freq_info.freq_offset_hz;
+    cell_info.duplex_spacing_id = freq_info.duplex_spacing_id;
+    cell_info.reverse_operation = freq_info.reverse_operation;
     let mut phy_io = CfgPhyIo::default();      
 
     // These tests don't support a PHY component, so we set backend to None
