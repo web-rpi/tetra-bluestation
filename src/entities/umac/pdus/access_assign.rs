@@ -1,7 +1,7 @@
 use std::panic;
 use core::fmt;
 
-use crate::common::pdu_parse_error::PduParseError;
+use crate::common::pdu_parse_error::PduParseErr;
 use crate::entities::umac::enums::{access_assign_dl_usage::AccessAssignDlUsage, access_assign_ul_usage::AccessAssignUlUsage};
 use crate::common::bitbuffer::BitBuffer;
 
@@ -66,7 +66,7 @@ impl Default for AccessAssign {
 
 impl AccessAssign {
 
-    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseError> {
+    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseErr> {
         let mut s = AccessAssign {
             _header: buf.read_field(2, "_header")? as u8,
             ..Default::default()
@@ -116,7 +116,7 @@ impl AccessAssign {
                 // UL defined by field2 usage marker
                 s.dl_usage = AccessAssignDlUsage::from_usage_marker(field1);
                 let ul_usage = AccessAssignUlUsage::from_usage_marker(field2);
-                s.ul_usage = ul_usage.ok_or(PduParseError::InvalidValue { field: "ul_usage", value: field2 as u64 })?;
+                s.ul_usage = ul_usage.ok_or(PduParseErr::InvalidValue { field: "ul_usage", value: field2 as u64 })?;
             }
             _ => {panic!()}
         }

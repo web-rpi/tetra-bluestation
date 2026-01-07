@@ -1,7 +1,7 @@
 use core::fmt;
 
 use crate::{assert_warn, common::{bitbuffer::BitBuffer, tdma_time::TdmaTime}};
-use crate::common::pdu_parse_error::PduParseError;
+use crate::common::pdu_parse_error::PduParseErr;
 
 /// Clause 21.4.4.2
 #[derive(Debug, Clone)]
@@ -30,7 +30,7 @@ pub struct MacSync {
 }
 
 impl MacSync {
-    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseError> {
+    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseErr> {
         let mut s = MacSync {
             system_code: 0,
             colour_code: 0,

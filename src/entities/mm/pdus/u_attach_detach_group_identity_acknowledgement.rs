@@ -1,12 +1,12 @@
 use core::fmt;
 
-use crate::common::pdu_parse_error::PduParseError;
+use crate::common::pdu_parse_error::PduParseErr;
 use crate::common::bitbuffer::BitBuffer;
-use crate::common::typed_pdu_fields;
+use crate::common::typed_pdu_fields::*;
+use crate::entities::mm::fields::group_identity_uplink::GroupIdentityUplink;
 use crate::expect_pdu_type;
 use crate::entities::mm::enums::mm_pdu_type_ul::MmPduTypeUl;
 use crate::entities::mm::enums::type34_elem_id_ul::MmType34ElemIdUl;
-use crate::entities::mm::components::type34_fields::{MmType3FieldUl,MmType4FieldUl};
 
 /// Representation of the U-ATTACH/DETACH GROUP IDENTITY ACKNOWLEDGEMENT PDU (Clause 16.9.3.2).
 /// The MS sends this message to the infrastructure to acknowledge SwMI initiated attachment/detachment of group identities.
@@ -18,15 +18,15 @@ pub struct UAttachDetachGroupIdentityAcknowledgement {
     /// Type1, 1 bits, Group identity acknowledgement type
     pub group_identity_acknowledgement_type: bool,
     /// Type4, Group identity uplink
-    pub group_identity_uplink: Option<MmType4FieldUl>,
+    pub group_identity_uplink: Option<Vec<GroupIdentityUplink>>,
     /// Type3, Proprietary
-    pub proprietary: Option<MmType3FieldUl>,
+    pub proprietary: Option<Type3FieldGeneric>,
 }
 
 #[allow(unreachable_code)] // TODO FIXME review, finalize and remove this
 impl UAttachDetachGroupIdentityAcknowledgement {
     /// Parse from BitBuffer
-    pub fn from_bitbuf(buffer: &mut BitBuffer) -> Result<Self, PduParseError> {
+    pub fn from_bitbuf(buffer: &mut BitBuffer) -> Result<Self, PduParseErr> {
 
         let pdu_type = buffer.read_field(4, "pdu_type")?;
         expect_pdu_type!(pdu_type, MmPduTypeUl::UAttachDetachGroupIdentityAcknowledgement)?;
@@ -35,24 +35,18 @@ impl UAttachDetachGroupIdentityAcknowledgement {
         let group_identity_acknowledgement_type = buffer.read_field(1, "group_identity_acknowledgement_type")? != 0;
 
         // obit designates presence of any further type2, type3 or type4 fields
-        let mut obit = typed_pdu_fields::delimiters::read_obit(buffer)?;
+        let mut obit = delimiters::read_obit(buffer)?;
 
         // Type4
-        let group_identity_uplink = match MmType4FieldUl::parse(buffer, MmType34ElemIdUl::GroupIdentityUplink) {
-            Ok(value) => Some(value),
-            Err(_) => {None}
-        };
+        let group_identity_uplink = typed::parse_type4_struct(obit, buffer, MmType34ElemIdUl::GroupIdentityUplink, GroupIdentityUplink::from_bitbuf)?;
 
         // Type3
-        let proprietary = match MmType3FieldUl::parse(buffer, MmType34ElemIdUl::Proprietary) {
-            Ok(value) => Some(value),
-            Err(_) => {None}
-        };
+        let proprietary = typed::parse_type3_generic(obit, buffer, MmType34ElemIdUl::Proprietary)?;
         
         // Read trailing mbit (if not previously encountered)
         obit = if obit { buffer.read_field(1, "trailing_obit")? == 1 } else { obit };
         if obit {
-            return Err(PduParseError::InvalidObitValue);
+            return Err(PduParseErr::InvalidTrailingMbitValue);
         }
 
         Ok(UAttachDetachGroupIdentityAcknowledgement { 
@@ -63,27 +57,25 @@ impl UAttachDetachGroupIdentityAcknowledgement {
     }
 
     /// Serialize this PDU into the given BitBuffer.
-    pub fn to_bitbuf(&self, buffer: &mut BitBuffer) -> Result<(), PduParseError> {
+    pub fn to_bitbuf(&self, buffer: &mut BitBuffer) -> Result<(), PduParseErr> {
         // PDU Type
         buffer.write_bits(MmPduTypeUl::UAttachDetachGroupIdentityAcknowledgement.into_raw(), 4);
         // Type1
         buffer.write_bits(self.group_identity_acknowledgement_type as u64, 1);
 
         // Check if any optional field present and place o-bit
-        let obit_val = self.group_identity_uplink.is_some() || self.proprietary.is_some() ;
-        typed_pdu_fields::delimiters::write_obit(buffer, obit_val as u8);
-        if !obit_val { return Ok(()); }
+        let obit = self.group_identity_uplink.is_some() || self.proprietary.is_some() ;
+        delimiters::write_obit(buffer, obit as u8);
+        if !obit { return Ok(()); }
 
         // Type4
-        if let Some(ref value) = self.group_identity_uplink {
-            MmType4FieldUl::write(buffer, value.field_type, value.data, value.len);
-        }
+        typed::write_type4_struct(obit, buffer, &self.group_identity_uplink, MmType34ElemIdUl::GroupIdentityUplink, GroupIdentityUplink::to_bitbuf)?;
+        
         // Type3
-        if let Some(ref value) = self.proprietary {
-            MmType3FieldUl::write(buffer, value.field_type, value.data, value.len);
-        }
+        typed::write_type3_generic(obit, buffer, &self.proprietary, MmType34ElemIdUl::Proprietary)?;
+            
         // Write terminating m-bit
-        typed_pdu_fields::delimiters::write_mbit(buffer, 0);
+        delimiters::write_mbit(buffer, 0);
         Ok(())
     }
 }

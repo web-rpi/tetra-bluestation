@@ -99,7 +99,7 @@ impl MacDefrag {
         self.buffers[ts].buffer.copy_bits(bitbuffer, bitbuffer.get_len_remaining());
 
         tracing::debug!("Defrag buffer {} first: ssi: {}, t_first: {}, t_last: {}, num_frags: {}: {}",
-            ts, self.buffers[ts].addr.ssi, self.buffers[ts].t_first.t, self.buffers[ts].t_last.t, 
+            ts, self.buffers[ts].addr.ssi, self.buffers[ts].t_first, self.buffers[ts].t_last, 
             self.buffers[ts].num_frags, self.buffers[ts].buffer.dump_bin());
 
     }
@@ -125,7 +125,7 @@ impl MacDefrag {
         self.buffers[ts].buffer.copy_bits(bitbuffer, bitbuffer.get_len_remaining());
 
         tracing::debug!("Defrag buffer {} next: ssi: {}, t_first: {}, t_last: {}, num_frags: {}: {}",
-            ts, self.buffers[ts].addr.ssi, self.buffers[ts].t_first.t, self.buffers[ts].t_last.t, 
+            ts, self.buffers[ts].addr.ssi, self.buffers[ts].t_first, self.buffers[ts].t_last, 
             self.buffers[ts].num_frags, self.buffers[ts].buffer.dump_bin());
 
     }
@@ -152,8 +152,17 @@ impl MacDefrag {
         self.buffers[ts].buffer.copy_bits(bitbuffer, bitbuffer.get_len_remaining());  
 
         tracing::debug!("Defrag buffer {} last: ssi: {}, t_first: {}, t_last: {}, num_frags: {}: {}",
-            ts, self.buffers[ts].addr.ssi, self.buffers[ts].t_first.t, self.buffers[ts].t_last.t, 
+            ts, self.buffers[ts].addr.ssi, self.buffers[ts].t_first, self.buffers[ts].t_last, 
             self.buffers[ts].num_frags, self.buffers[ts].buffer.dump_bin());
+    }
+
+    pub fn get_aie_info(&self, t: TdmaTime) -> Option<&Todo> {
+        let ts = (t.t - 1) as usize;
+        if self.buffers[ts].state != DefragBufferState::Active {
+            tracing::warn!("Defrag buffer {} is not active", ts);
+            return None;
+        }
+        self.buffers[ts].aie_info.as_ref()
     }
 
     /// Transfers finalized defragbuf to caller, setting bitbuffer slot pos to start. 

@@ -1,12 +1,13 @@
 use core::fmt;
 
-use crate::common::pdu_parse_error::PduParseError;
+use crate::common::pdu_parse_error::PduParseErr;
 use crate::common::bitbuffer::BitBuffer;
-use crate::common::typed_pdu_fields;
+use crate::common::typed_pdu_fields::*;
+use crate::entities::mm::enums::mm_location_update_type::MmLocationUpdateType;
+use crate::entities::mm::fields::group_identity_location_demand::GroupIdentityLocationDemand;
 use crate::expect_pdu_type;
 use crate::entities::mm::enums::mm_pdu_type_ul::MmPduTypeUl;
 use crate::entities::mm::enums::type34_elem_id_ul::MmType34ElemIdUl;
-use crate::entities::mm::components::type34_fields::MmType3FieldUl;
 
 /// Representation of the U-LOCATION UPDATE DEMAND PDU (Clause 16.9.3.4).
 /// The MS sends this message to the infrastructure to request update of its location registration.
@@ -18,7 +19,7 @@ use crate::entities::mm::components::type34_fields::MmType3FieldUl;
 #[derive(Debug)]
 pub struct ULocationUpdateDemand {
     /// Type1, 3 bits, Location update type
-    pub location_update_type: u8,
+    pub location_update_type: MmLocationUpdateType,
     /// Type1, 1 bits, Request to append LA
     pub request_to_append_la: bool,
     /// Type1, 1 bits, Cipher control
@@ -36,27 +37,35 @@ pub struct ULocationUpdateDemand {
     /// Type2, 24 bits, MNI of the MS,
     pub address_extension: Option<u64>,
     /// Type3, Group identity location demand
-    pub group_identity_location_demand: Option<MmType3FieldUl>,
+    pub group_identity_location_demand: Option<GroupIdentityLocationDemand>,
     /// Type3, 3 bits, Group report response
-    pub group_report_response: Option<MmType3FieldUl>,
+    pub group_report_response: Option<Type3FieldGeneric>,
     /// Type3, 3 bits, See ETSI EN 300 392-7 [8],
-    pub authentication_uplink: Option<MmType3FieldUl>,
+    pub authentication_uplink: Option<Type3FieldGeneric>,
     /// Type3, 3 bits, See note 2,
-    pub extended_capabilities: Option<MmType3FieldUl>,
+    pub extended_capabilities: Option<Type3FieldGeneric>,
     /// Type3, 3 bits, Proprietary
-    pub proprietary: Option<MmType3FieldUl>,
+    pub proprietary: Option<Type3FieldGeneric>,
 }
 
 #[allow(unreachable_code)] // TODO FIXME review, finalize and remove this
 impl ULocationUpdateDemand {
     /// Parse from BitBuffer
-    pub fn from_bitbuf(buffer: &mut BitBuffer) -> Result<Self, PduParseError> {
+    pub fn from_bitbuf(buffer: &mut BitBuffer) -> Result<Self, PduParseErr> {
 
         let pdu_type = buffer.read_field(4, "pdu_type")?;
         expect_pdu_type!(pdu_type, MmPduTypeUl::ULocationUpdateDemand)?;
         
         // Type1
-        let location_update_type = buffer.read_field(3, "location_update_type")? as u8;
+        let val: u64 = buffer.read_field(3, "location_update_type")?;
+        let result = MmLocationUpdateType::try_from(val);
+        let location_update_type = match result {
+            Ok(x) => x,
+            Err(_) => return Err(PduParseErr::InvalidValue{field: "location_update_type", value: val})
+        };
+
+
+
         // Type1
         let request_to_append_la = buffer.read_field(1, "request_to_append_la")? != 0;
         // Type1
@@ -69,66 +78,47 @@ impl ULocationUpdateDemand {
         };
 
         // obit designates presence of any further type2, type3 or type4 fields
-        let mut obit = typed_pdu_fields::delimiters::read_obit(buffer)?;
+        let mut obit = delimiters::read_obit(buffer)?;
 
         // Type2
-        let class_of_ms = if obit { 
-            typed_pdu_fields::type2::parse(buffer, 24, "class_of_ms")? as Option<u64>
-        } else { None };
+        let class_of_ms = typed::parse_type2_generic(obit, buffer, 24, "class_of_ms")?;
         // Type2
-        let energy_saving_mode = if obit { 
-            typed_pdu_fields::type2::parse(buffer, 3, "energy_saving_mode")? as Option<u64>
-        } else { None };
+        let energy_saving_mode = typed::parse_type2_generic(obit, buffer, 3, "energy_saving_mode")?;
         // Type2
-        let la_information = if obit { 
-            typed_pdu_fields::type2::parse(buffer, 999, "la_information")? as Option<u64>
-        } else { None };
+        let la_information = typed::parse_type2_generic(obit, buffer, 15, "la_information")?;
+        let la_information = match la_information {
+            Some(v) => {
+                // Most likely, this is 14-bits for the LA, then one zero-bit
+                tracing::warn!("LA Information parsing not implemented/validated fully");
+                Some(v / 2) // Remove trailing zero bit
+            },
+            None => None
+        };
+
         // Type2
-        let ssi = if obit { 
-            typed_pdu_fields::type2::parse(buffer, 24, "ssi")? as Option<u64>
-        } else { None };
+        let ssi = typed::parse_type2_generic(obit, buffer, 24, "ssi")?;
         // Type2
-        let address_extension = if obit { 
-            typed_pdu_fields::type2::parse(buffer, 24, "address_extension")? as Option<u64>
-        } else { None };
-
+        let address_extension = typed::parse_type2_generic(obit, buffer, 24, "address_extension")?;
 
         // Type3
-        let group_identity_location_demand = match MmType3FieldUl::parse(buffer, MmType34ElemIdUl::GroupIdentityLocationDemand) {
-            Ok(value) => Some(value),
-            Err(_) => {None}
-        };
+        let group_identity_location_demand = typed::parse_type3_struct(obit, buffer, MmType34ElemIdUl::GroupIdentityLocationDemand, GroupIdentityLocationDemand::from_bitbuf)?;
 
         // Type3
-        let group_report_response = match MmType3FieldUl::parse(buffer, MmType34ElemIdUl::GroupReportResponse) {
-            Ok(value) => Some(value),
-            Err(_) => {None}
-        };
-        
+        let group_report_response = typed::parse_type3_generic(obit, buffer, MmType34ElemIdUl::GroupReportResponse)?;        
 
         // Type3
-        let authentication_uplink = match MmType3FieldUl::parse(buffer, MmType34ElemIdUl::AuthenticationUplink) {
-            Ok(value) => Some(value),
-            Err(_) => {None}
-        };
+        let authentication_uplink = typed::parse_type3_generic(obit, buffer, MmType34ElemIdUl::AuthenticationUplink)?;
 
         // Type3
-        let extended_capabilities = match MmType3FieldUl::parse(buffer, MmType34ElemIdUl::ExtendedCapabilities) {
-            Ok(value) => Some(value),
-            Err(_) => {None}
-        };
+        let extended_capabilities = typed::parse_type3_generic(obit, buffer, MmType34ElemIdUl::ExtendedCapabilities)?;
 
         // Type3
-        let proprietary = match MmType3FieldUl::parse(buffer, MmType34ElemIdUl::Proprietary) {
-            Ok(value) => Some(value),
-            Err(_) => {None}
-        };
-        
+        let proprietary = typed::parse_type3_generic(obit, buffer, MmType34ElemIdUl::Proprietary)?;    
 
         // Read trailing mbit (if not previously encountered)
         obit = if obit { buffer.read_field(1, "trailing_obit")? == 1 } else { obit };
         if obit {
-            return Err(PduParseError::InvalidObitValue);
+            return Err(PduParseErr::InvalidTrailingMbitValue);
         }
 
         Ok(ULocationUpdateDemand { 
@@ -138,7 +128,7 @@ impl ULocationUpdateDemand {
             ciphering_parameters, 
             class_of_ms, 
             energy_saving_mode, 
-            la_information, 
+            la_information,
             ssi, 
             address_extension, 
             group_identity_location_demand, 
@@ -150,7 +140,7 @@ impl ULocationUpdateDemand {
     }
 
     /// Serialize this PDU into the given BitBuffer.
-    pub fn to_bitbuf(&self, buffer: &mut BitBuffer) -> Result<(), PduParseError> {
+    pub fn to_bitbuf(&self, buffer: &mut BitBuffer) -> Result<(), PduParseErr> {
         // PDU Type
         buffer.write_bits(MmPduTypeUl::ULocationUpdateDemand.into_raw(), 4);
         // Type1
@@ -165,48 +155,51 @@ impl ULocationUpdateDemand {
         }
 
         // Check if any optional field present and place o-bit
-        let obit_val = self.class_of_ms.is_some() || self.energy_saving_mode.is_some() || self.la_information.is_some() || self.ssi.is_some() || self.address_extension.is_some() || self.group_identity_location_demand.is_some() || self.group_report_response.is_some() || self.authentication_uplink.is_some() || self.extended_capabilities.is_some() || self.proprietary.is_some() ;
-        typed_pdu_fields::delimiters::write_obit(buffer, obit_val as u8);
-        if !obit_val { return Ok(()); }
+        let obit = self.class_of_ms.is_some() || self.energy_saving_mode.is_some() || self.la_information.is_some() || self.ssi.is_some() || self.address_extension.is_some() || self.group_identity_location_demand.is_some() || self.group_report_response.is_some() || self.authentication_uplink.is_some() || self.extended_capabilities.is_some() || self.proprietary.is_some() ;
+        delimiters::write_obit(buffer, obit as u8);
+        if !obit { return Ok(()); }
 
         // Type2
-        typed_pdu_fields::type2::write(buffer, self.class_of_ms, 24);
+        typed::write_type2_generic(obit, buffer, self.class_of_ms, 24);
 
         // Type2
-        typed_pdu_fields::type2::write(buffer, self.energy_saving_mode, 3);
+        typed::write_type2_generic(obit, buffer, self.energy_saving_mode, 3);
 
         // Type2
-        unimplemented!();
-            typed_pdu_fields::type2::write(buffer, self.la_information, 999);
+        let la_and_zero_bit = if let Some(la) = self.la_information {
+            tracing::warn!("LA Information serialization not implemented/validated fully");
+            // Most likely, this is 14-bits for the LA, then one zero-bit
+            Some(la << 1)
+        } else {
+            None
+        };
+        typed::write_type2_generic(obit, buffer, la_and_zero_bit, 15);
 
         // Type2
-        typed_pdu_fields::type2::write(buffer, self.ssi, 24);
+        typed::write_type2_generic(obit, buffer, self.ssi, 24);
 
         // Type2
-        typed_pdu_fields::type2::write(buffer, self.address_extension, 24);
+        typed::write_type2_generic(obit, buffer, self.address_extension, 24);
 
         // Type3
-        if let Some(ref value) = self.group_identity_location_demand {
-            MmType3FieldUl::write(buffer, value.field_type, value.data, value.len);
-        }
+        typed::write_type3_struct(obit, buffer, &self.group_identity_location_demand, MmType34ElemIdUl::GroupIdentityLocationDemand, GroupIdentityLocationDemand::to_bitbuf)?;
+
         // Type3
-        if let Some(ref value) = self.group_report_response {
-            MmType3FieldUl::write(buffer, value.field_type, value.data, value.len);
-        }
+        typed::write_type3_generic(obit, buffer, &self.group_report_response, MmType34ElemIdUl::GroupReportResponse)?;
+        
         // Type3
-        if let Some(ref value) = self.authentication_uplink {
-            MmType3FieldUl::write(buffer, value.field_type, value.data, value.len);
-        }
+        typed::write_type3_generic(obit, buffer, &self.authentication_uplink, MmType34ElemIdUl::AuthenticationUplink)?;
+        
         // Type3
-        if let Some(ref value) = self.extended_capabilities {
-            MmType3FieldUl::write(buffer, value.field_type, value.data, value.len);
-        }
+        
+        typed::write_type3_generic(obit, buffer, &self.extended_capabilities, MmType34ElemIdUl::ExtendedCapabilities)?;
+        
         // Type3
-        if let Some(ref value) = self.proprietary {
-            MmType3FieldUl::write(buffer, value.field_type, value.data, value.len);
-        }
+        
+        typed::write_type3_generic(obit, buffer, &self.proprietary, MmType34ElemIdUl::Proprietary)?;
+        
         // Write terminating m-bit
-        typed_pdu_fields::delimiters::write_mbit(buffer, 0);
+        delimiters::write_mbit(buffer, 0);
         Ok(())
     }
 }
@@ -231,3 +224,53 @@ impl fmt::Display for ULocationUpdateDemand {
         )
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+
+    use crate::common::debug;
+
+    use super::*;
+
+    #[test]
+    fn test_u_location_update_demand_with_group_identity_location_demand() {
+        
+        // Example of nested type3 struct that embeds another type4
+        // Parsing group_identity_location_demand: 001000000110001001001010000001000000000^1001100000111000001110000000010010000000101000000000000000000000001101000
+        // Parsing GroupIdentityLocationDemand:    00100000011000100100101000000100000000010011 00000111000 001^1 1000 00000100100 000001 01000000000000000000000001101000
+        //         GroupIdentityLocationDemand:    00100000011000100100101000000100000000010011 00000111000 001 1 1000 00000100100 000001 010000000000000000000000011010^00
+        // 00100000011000100100101000000100000000010011 00000111000 001 1 1000 00000100100 000001 010000000000000000000000011010 0^0
+        //                                        | obit: fields follow
+        //                                            |--| GroupIdentityLocationDemand ID
+        //                                              |---------| GroupIdentityLocationDemand subelem len
+        //                                                          || reserved, attach/detach bit
+        //                                                            | obit: fields follow
+        //                                                              ---------------------------------------------------------- GroupIdentityUplink
+        //                                                              m -ID- -- len ---- - num- -data-                         m m(for upper struct)
+
+        // Vec from moto upon registration
+
+        debug::setup_logging_verbose();
+        let test_vec = "0010000001100010010010100000010000000001001100000111000001110000000010010000000101000000000000000000000001101000";
+        let mut buf_in = BitBuffer::from_bitstr(test_vec);
+        let pdu = ULocationUpdateDemand::from_bitbuf(&mut buf_in).expect("Failed parsing");
+
+        tracing::info!("Parsed: {:?}", pdu);
+        tracing::info!("Buf at end: {}", buf_in.dump_bin());
+
+        let mut buf_out = BitBuffer::new_autoexpand(32);
+        pdu.to_bitbuf(&mut buf_out).unwrap();
+        tracing::info!("Serialized: {}", buf_out.dump_bin());
+        assert_eq!(buf_out.to_bitstr(), test_vec);
+
+        assert!(buf_in.get_len_remaining() == 0, "Buffer not fully consumed");
+        let gild = pdu.group_identity_location_demand.unwrap();
+        assert_eq!(gild.group_identity_attach_detach_mode, 0);
+        let gild_giu = gild.group_identity_uplink.unwrap();
+        assert_eq!(gild_giu.len(), 1);
+        let giu0 = &gild_giu[0];
+        assert_eq!(giu0.gssi, Some(26));
+    }
+}
+

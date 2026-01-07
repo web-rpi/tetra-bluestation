@@ -1,12 +1,11 @@
 use core::fmt;
 
-use crate::common::pdu_parse_error::PduParseError;
+use crate::common::pdu_parse_error::PduParseErr;
 use crate::common::bitbuffer::BitBuffer;
-use crate::common::typed_pdu_fields;
+use crate::common::typed_pdu_fields::*;
 use crate::expect_pdu_type;
 use crate::entities::mm::enums::mm_pdu_type_ul::MmPduTypeUl;
 use crate::entities::mm::enums::type34_elem_id_ul::MmType34ElemIdUl;
-use crate::entities::mm::components::type34_fields::{MmType3FieldUl,MmType4FieldUl};
 use crate::entities::mm::fields::group_identity_uplink::GroupIdentityUplink;
 
 /// Representation of the U-ATTACH/DETACH GROUP IDENTITY PDU (Clause 16.9.3.1).
@@ -21,17 +20,17 @@ pub struct UAttachDetachGroupIdentity {
     /// Type1, 1 bits, Group identity attach/detach mode. 0 = amendment, 1 = detach all and attach to specified groups
     pub group_identity_attach_detach_mode: bool,
     /// Type3, Group report response
-    pub group_report_response: Option<MmType3FieldUl>,
+    pub group_report_response: Option<Type3FieldGeneric>,
     /// Type4, Group identity uplink
     pub group_identity_uplink: Option<Vec<GroupIdentityUplink>>,
     /// Type3, Proprietary
-    pub proprietary: Option<MmType3FieldUl>,
+    pub proprietary: Option<Type3FieldGeneric>,
 }
 
 #[allow(unreachable_code)] // TODO FIXME review, finalize and remove this
 impl UAttachDetachGroupIdentity {
     /// Parse from BitBuffer
-    pub fn from_bitbuf(buffer: &mut BitBuffer) -> Result<Self, PduParseError> {
+    pub fn from_bitbuf(buffer: &mut BitBuffer) -> Result<Self, PduParseErr> {
 
         let pdu_type = buffer.read_field(4, "pdu_type")?;
         expect_pdu_type!(pdu_type, MmPduTypeUl::UAttachDetachGroupIdentity)?;
@@ -42,36 +41,26 @@ impl UAttachDetachGroupIdentity {
         let group_identity_attach_detach_mode = buffer.read_field(1, "group_identity_attach_detach_mode")? != 0;
 
         // obit designates presence of any further type2, type3 or type4 fields
-        let mut obit = typed_pdu_fields::delimiters::read_obit(buffer)?;
+        let mut obit = delimiters::read_obit(buffer)?;
 
         // Type3 - stores raw data, so use existing approach
-        let group_report_response = if obit { 
-            match MmType3FieldUl::parse(buffer, MmType34ElemIdUl::GroupReportResponse) {
-                Ok(value) => Some(value),
-                Err(_) => None
-            }
-        } else { None };
+        let group_report_response = typed::parse_type3_generic(obit, buffer, MmType34ElemIdUl::GroupReportResponse)?;
         
         // Type4 - parses to structs, use generic helper
-        let group_identity_uplink = typed_pdu_fields::type34::parse_type4_struct(
+        let group_identity_uplink = typed::parse_type4_struct(
+            obit,
             buffer,
             MmType34ElemIdUl::GroupIdentityUplink,
             GroupIdentityUplink::from_bitbuf
-        ).map_err(|_| PduParseError::BufferEnded { field: "group_identity_uplink" })?;
+        )?;
         
-        // Type3 - stores raw data
-        let proprietary = if obit { 
-            match MmType3FieldUl::parse(buffer, MmType34ElemIdUl::Proprietary) {
-                Ok(value) => Some(value),
-                Err(_) => None
-            }
-        } else { None };
-        
+        // Type3
+        let proprietary = typed::parse_type3_generic(obit, buffer, MmType34ElemIdUl::Proprietary)?;        
+
         // Read trailing mbit (if not previously encountered)
         obit = if obit { buffer.read_field(1, "trailing_obit")? == 1 } else { obit };
-
         if obit {
-            return Err(PduParseError::InvalidObitValue);
+            return Err(PduParseErr::InvalidTrailingMbitValue);
         }
 
         Ok(UAttachDetachGroupIdentity { 
@@ -84,7 +73,7 @@ impl UAttachDetachGroupIdentity {
     }
 
     /// Serialize this PDU into the given BitBuffer.
-    pub fn to_bitbuf(&self, buffer: &mut BitBuffer) -> Result<(), PduParseError> {
+    pub fn to_bitbuf(&self, buffer: &mut BitBuffer) -> Result<(), PduParseErr> {
         // PDU Type
         buffer.write_bits(MmPduTypeUl::UAttachDetachGroupIdentity.into_raw(), 4);
         // Type1
@@ -93,27 +82,27 @@ impl UAttachDetachGroupIdentity {
         buffer.write_bits(self.group_identity_attach_detach_mode as u64, 1);
 
         // Check if any optional field present and place o-bit
-        let obit_val = self.group_report_response.is_some() || self.group_identity_uplink.is_some() || self.proprietary.is_some() ;
-        typed_pdu_fields::delimiters::write_obit(buffer, obit_val as u8);
-        if !obit_val { return Ok(()); }
+        let obit = self.group_report_response.is_some() || self.group_identity_uplink.is_some() || self.proprietary.is_some() ;
+        delimiters::write_obit(buffer, obit as u8);
+        if !obit { return Ok(()); }
 
         // Type3
-        if let Some(ref value) = self.group_report_response {
-            MmType3FieldUl::write(buffer, value.field_type, value.data, value.len);
-        }
+        typed::write_type3_generic(obit, buffer, &self.group_report_response, MmType34ElemIdUl::GroupReportResponse)?;
+
         // Type4
-        typed_pdu_fields::type34::write_type4_struct(
+        typed::write_type4_struct(
+            obit, 
             buffer,
             &self.group_identity_uplink,
             MmType34ElemIdUl::GroupIdentityUplink,
             GroupIdentityUplink::to_bitbuf
         )?;
+
         // Type3
-        if let Some(ref value) = self.proprietary {
-            MmType3FieldUl::write(buffer, value.field_type, value.data, value.len);
-        }
+        typed::write_type3_generic(obit, buffer, &self.proprietary, MmType34ElemIdUl::Proprietary)?;
+
         // Write terminating m-bit
-        typed_pdu_fields::delimiters::write_mbit(buffer, 0);
+        delimiters::write_mbit(buffer, 0);
         Ok(())
     }
 }
@@ -133,16 +122,12 @@ impl fmt::Display for UAttachDetachGroupIdentity {
 
 #[cfg(test)]
 mod tests {
-    use crate::common::debug::setup_logging_default;
+    use crate::common::debug;
 
     use super::*;
 
     #[test]
-    fn decode_encode_test() {
-
-        setup_logging_default();
-        let test_vec = "011101111000000001001000000010100000000110101000110011100000";
-        let mut buffer = BitBuffer::from_bitstr(test_vec);
+    fn test_u_attach_detach_group_identity() {
 
         // 0111 0 1 1 11000000001001000000010100000000110101000110011100000
         // |--| PDU type
@@ -154,24 +139,18 @@ mod tests {
         //                            |----------------------------------| 	field contents
         //                                                                | trailing mbit
 
-        let pdu = match UAttachDetachGroupIdentity::from_bitbuf(&mut buffer) {
-            Ok(pdu) => {
-                tracing::debug!("<- {:?}", pdu);
-                pdu
-            }
-            Err(e) => {
-                tracing::warn!("Failed parsing UAttachDetachGroupIdentity: {:?} {}", e, buffer.dump_bin());
-                return;
-            }
-        };
+        // Vector from Sepura SC20
+        debug::setup_logging_verbose();
+        let test_vec = "011101111000000001001000000010100000000110101000110011100000";
+        let mut buf_in = BitBuffer::from_bitstr(test_vec);
+        let pdu = UAttachDetachGroupIdentity::from_bitbuf(&mut buf_in).expect("Failed parsing");
         
         tracing::info!("Parsed: {:?}", pdu);
-        tracing::info!("Buf at end: {}", buffer.dump_bin());
+        tracing::info!("Buf at end: {}", buf_in.dump_bin());
 
-        let mut buf = BitBuffer::new_autoexpand(32);
-        pdu.to_bitbuf(&mut buf).unwrap();
-        tracing::info!("Serialized: {}", buf.dump_bin());
-        assert_eq!(buf.to_bitstr(), test_vec);
-
+        let mut buf_out = BitBuffer::new_autoexpand(32);
+        pdu.to_bitbuf(&mut buf_out).unwrap();
+        tracing::info!("Serialized: {}", buf_out.dump_bin());
+        assert_eq!(buf_out.to_bitstr(), test_vec);
     }
 }

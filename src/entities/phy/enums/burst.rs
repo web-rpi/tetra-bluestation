@@ -39,18 +39,18 @@ pub enum PhyBlockNum {
 #[derive(Default)]
 pub enum TrainingSequence {
     /// 22 n bits
-    NormalTrainSeq1, 
+    NormalTrainSeq1 = 1,
     /// 22 p bits
-    NormalTrainSeq2,
+    NormalTrainSeq2 = 2,
     /// 22 q bits
-    NormalTrainSeq3,
+    NormalTrainSeq3 = 3,
     /// 30 x bits
-    ExtendedTrainSeq,
+    ExtendedTrainSeq = 4,
     /// 38 y bits
-    SyncTrainSeq,
+    SyncTrainSeq = 5,
     /// Not found
     #[default]
-    NotFound
+    NotFound = 0,
 }
 
 

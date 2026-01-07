@@ -1,8 +1,8 @@
 use core::fmt;
 
 use crate::common::bitbuffer::BitBuffer;
-use crate::common::pdu_parse_error::PduParseError;
-use crate::common::typed_pdu_fields;
+use crate::common::pdu_parse_error::PduParseErr;
+use crate::common::typed_pdu_fields::*;
 use crate::expect_pdu_type;
 use crate::entities::cmce::enums::cmce_pdu_type_dl::CmcePduTypeDl;
 
@@ -19,30 +19,30 @@ pub struct DFacility {
 #[allow(unreachable_code)] // TODO FIXME review, finalize and remove this
 impl DFacility {
     /// Parse from BitBuffer
-    pub fn from_bitbuf(buffer: &mut BitBuffer) -> Result<Self, PduParseError> {
+    pub fn from_bitbuf(buffer: &mut BitBuffer) -> Result<Self, PduParseErr> {
 
         let pdu_type = buffer.read_field(5, "pdu_type")?;
         expect_pdu_type!(pdu_type, CmcePduTypeDl::DFacility)?;
 
 
         // obit designates presence of any further type2, type3 or type4 fields
-        let mut obit = typed_pdu_fields::delimiters::read_obit(buffer)?;
+        let mut obit = delimiters::read_obit(buffer)?;
 
         // Read trailing obit (if not previously encountered)
         obit = if obit { buffer.read_field(1, "trailing_obit")? == 1 } else { obit };
         if obit {
-            return Err(PduParseError::InvalidObitValue);
+            return Err(PduParseErr::InvalidTrailingMbitValue);
         }
 
         Ok(DFacility {  })
     }
 
     /// Serialize this PDU into the given BitBuffer.
-    pub fn to_bitbuf(&self, buffer: &mut BitBuffer) -> Result<(), PduParseError> {
+    pub fn to_bitbuf(&self, buffer: &mut BitBuffer) -> Result<(), PduParseErr> {
         // PDU Type
         buffer.write_bits(CmcePduTypeDl::DFacility.into_raw(), 5);
         // Write terminating m-bit
-        typed_pdu_fields::delimiters::write_mbit(buffer, 0);
+        delimiters::write_mbit(buffer, 0);
         Ok(())
     }
 }

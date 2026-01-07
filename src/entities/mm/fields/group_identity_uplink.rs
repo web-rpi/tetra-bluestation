@@ -1,6 +1,6 @@
 use core::fmt;
 
-use crate::common::{bitbuffer::BitBuffer, pdu_parse_error::PduParseError};
+use crate::common::{bitbuffer::BitBuffer, pdu_parse_error::PduParseErr};
 
 /// 16.10.27 Group identity uplink
 #[derive(Debug, Clone)]
@@ -22,7 +22,7 @@ pub struct GroupIdentityUplink {
 }
 
 impl GroupIdentityUplink {
-    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseError> {
+    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseErr> {
         let mut s = GroupIdentityUplink {
             // attach_detach_type_identifier: false,
             class_of_usage: None,
@@ -47,7 +47,7 @@ impl GroupIdentityUplink {
         Ok(s)
     }
 
-    pub fn to_bitbuf(&self, buf: &mut BitBuffer) -> Result<(), PduParseError> {
+    pub fn to_bitbuf(&self, buf: &mut BitBuffer) -> Result<(), PduParseErr> {
 
         assert!(self.class_of_usage.is_some() ^ self.group_identity_detachment_uplink.is_some(), "need one of class_of_usage or group_identity_detachment_uplink");
         buf.write_bits(if self.class_of_usage.is_some() {0} else {1}, 1);

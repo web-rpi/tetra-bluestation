@@ -3,7 +3,7 @@
 
 use rustfft;
 use crate::config::stack_config::{SharedConfig, StackMode};
-use crate::entities::phy::components::rxtxdev_soapysdr;
+use crate::entities::phy::components::soapy_dev;
 use crate::entities::phy::traits::rxtx_dev::{RxTxDev, RxTxDevError, TxSlotBits, RxSlotBits};
 
 use super::demodulator;
@@ -101,7 +101,7 @@ impl RxTxDevSoapySdr {
             ul_corrected / 1e6
         );
 
-        let phy_config = rxtxdev_soapysdr::PhyConfig {
+        let phy_config = soapy_dev::PhyConfig {
             bs_dl_frequencies: &[dl_corrected],
             bs_ul_frequencies: &[ul_corrected],
             ..Default::default()

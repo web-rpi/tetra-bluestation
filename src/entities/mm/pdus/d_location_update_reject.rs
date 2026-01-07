@@ -1,12 +1,12 @@
 use core::fmt;
 
-use crate::common::pdu_parse_error::PduParseError;
+use crate::common::pdu_parse_error::PduParseErr;
 use crate::common::bitbuffer::BitBuffer;
-use crate::common::typed_pdu_fields;
+use crate::common::typed_pdu_fields::*;
 use crate::expect_pdu_type;
 use crate::entities::mm::enums::mm_pdu_type_dl::MmPduTypeDl;
 use crate::entities::mm::enums::type34_elem_id_dl::MmType34ElemIdDl;
-use crate::entities::mm::components::type34_fields::MmType3FieldDl;
+
 
 /// Representation of the D-LOCATION UPDATE REJECT PDU (Clause 16.9.2.9).
 /// The infrastructure sends this message to the MS to indicate that updating in the network is not accepted.
@@ -28,16 +28,16 @@ pub struct DLocationUpdateReject {
     /// Type2, 24 bits, MNI of the MS,
     pub address_extension: Option<u64>,
     /// Type3, Cell type control
-    pub cell_type_control: Option<MmType3FieldDl>,
+    pub cell_type_control: Option<Type3FieldGeneric>,
     /// Type3, Proprietary
-    pub proprietary: Option<MmType3FieldDl>,
+    pub proprietary: Option<Type3FieldGeneric>,
 }
 
 #[allow(unreachable_code)] // TODO FIXME review, finalize and remove this
 #[allow(unused_variables)]
 impl DLocationUpdateReject {
     /// Parse from BitBuffer
-    pub fn from_bitbuf(buffer: &mut BitBuffer) -> Result<Self, PduParseError> {
+    pub fn from_bitbuf(buffer: &mut BitBuffer) -> Result<Self, PduParseErr> {
 
         let pdu_type = buffer.read_field(4, "pdu_type")?;
         expect_pdu_type!(pdu_type, MmPduTypeDl::DLocationUpdateReject)?;
@@ -52,29 +52,20 @@ impl DLocationUpdateReject {
         unimplemented!(); let ciphering_parameters = if true { Some(0) } else { None };
 
         // obit designates presence of any further type2, type3 or type4 fields
-        let mut obit = typed_pdu_fields::delimiters::read_obit(buffer)?;
+        let mut obit = delimiters::read_obit(buffer)?;
 
         // Type2
-        let address_extension = if obit { 
-            typed_pdu_fields::type2::parse(buffer, 24, "address_extension")? as Option<u64>
-        } else { None };
+        let address_extension = typed::parse_type2_generic(obit, buffer, 24, "address_extension")?;
 
         // Type3
-        let cell_type_control = match MmType3FieldDl::parse(buffer, MmType34ElemIdDl::CellTypeControl) {
-            Ok(value) => Some(value),
-            Err(_) => {None}
-        };
+        let cell_type_control = typed::parse_type3_generic(obit, buffer, MmType34ElemIdDl::CellTypeControl)?;
 
         // Type3
-        let proprietary = match MmType3FieldDl::parse(buffer, MmType34ElemIdDl::Proprietary) {
-            Ok(value) => Some(value),
-            Err(_) => {None}
-        };
-
+        let proprietary = typed::parse_type3_generic(obit, buffer, MmType34ElemIdDl::Proprietary)?;
         // Read trailing mbit (if not previously encountered)
         obit = if obit { buffer.read_field(1, "trailing_obit")? == 1 } else { obit };
         if obit {
-            return Err(PduParseError::InvalidObitValue);
+            return Err(PduParseErr::InvalidTrailingMbitValue);
         }
 
         Ok(DLocationUpdateReject { 
@@ -89,7 +80,7 @@ impl DLocationUpdateReject {
     }
 
     /// Serialize this PDU into the given BitBuffer.
-    pub fn to_bitbuf(&self, buffer: &mut BitBuffer) -> Result<(), PduParseError> {
+    pub fn to_bitbuf(&self, buffer: &mut BitBuffer) -> Result<(), PduParseErr> {
         // PDU Type
         buffer.write_bits(MmPduTypeDl::DLocationUpdateReject.into_raw(), 4);
         // Type1
@@ -104,23 +95,21 @@ impl DLocationUpdateReject {
         }
 
         // Check if any optional field present and place o-bit
-        let obit_val = self.address_extension.is_some() || self.cell_type_control.is_some() || self.proprietary.is_some() ;
-        typed_pdu_fields::delimiters::write_obit(buffer, obit_val as u8);
-        if !obit_val { return Ok(()); }
+        let obit = self.address_extension.is_some() || self.cell_type_control.is_some() || self.proprietary.is_some() ;
+        delimiters::write_obit(buffer, obit as u8);
+        if !obit { return Ok(()); }
 
         // Type2
-        typed_pdu_fields::type2::write(buffer, self.address_extension, 24);
+        typed::write_type2_generic(obit, buffer, self.address_extension, 24);
 
         // Type3
-        if let Some(ref value) = self.cell_type_control {
-            MmType3FieldDl::write(buffer, value.field_type, value.data, value.len);
-        }
+        typed::write_type3_generic(obit, buffer, &self.cell_type_control, MmType34ElemIdDl::CellTypeControl)?;
+        
         // Type3
-        if let Some(ref value) = self.proprietary {
-            MmType3FieldDl::write(buffer, value.field_type, value.data, value.len);
-        }
+        typed::write_type3_generic(obit, buffer, &self.proprietary, MmType34ElemIdDl::Proprietary)?;
+
         // Write terminating m-bit
-        typed_pdu_fields::delimiters::write_mbit(buffer, 0);
+        delimiters::write_mbit(buffer, 0);
         Ok(())
     }
 }

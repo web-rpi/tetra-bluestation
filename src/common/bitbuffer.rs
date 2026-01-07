@@ -1,6 +1,6 @@
 use std::{cmp::{max, min}, fmt};
 
-use crate::common::pdu_parse_error::PduParseError;
+use crate::common::pdu_parse_error::PduParseErr;
 
 
 
@@ -195,8 +195,8 @@ impl BitBuffer {
     }
 
     /// Similar to read_bits, but returns a ParseError::BufferEnded with the given error_string if not enough bits are available.
-    pub fn read_field(&mut self, num_bits: usize, error_string: &'static str) -> Result<u64, PduParseError> {
-        self.read_bits(num_bits).ok_or(PduParseError::BufferEnded { field: error_string })
+    pub fn read_field(&mut self, num_bits: usize, error_string: &'static str) -> Result<u64, PduParseErr> {
+        self.read_bits(num_bits).ok_or(PduParseErr::BufferEnded { field: Some(error_string) })
     }
 
     pub fn read_bit(&mut self) -> Option<u8> {

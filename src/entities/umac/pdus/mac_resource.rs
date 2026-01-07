@@ -1,6 +1,6 @@
 use core::fmt;
 use std::panic;
-use crate::common::pdu_parse_error::PduParseError;
+use crate::common::pdu_parse_error::PduParseErr;
 
 use crate::{common::{address::{SsiType, TetraAddress}, bitbuffer::BitBuffer}, entities::umac::{enums::mac_resource_addr_type::MacResourceAddrType, fields::{basic_slotgrant::BasicSlotgrant, channel_allocation::ChanAllocElement}}};
 
@@ -51,7 +51,7 @@ pub struct MacResource {
 
 
 impl MacResource {
-    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseError> {
+    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseErr> {
         let mut s = MacResource {
             fill_bits: false,
             pos_of_grant: 0,

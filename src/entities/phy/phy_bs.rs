@@ -3,6 +3,7 @@ use std::panic;
 use crate::config::stack_config::SharedConfig;
 use crate::common::messagerouter::MessageQueue;
 use crate::entities::phy::components::burst_consts::*;
+use crate::entities::phy::components::phy_io_file::{PhyIoFileMode, FileWriteMsg};
 use crate::entities::phy::components::train_consts::TIMESLOT_TYPE4_BITS;
 use crate::saps::sapmsg::{SapMsg, SapMsgInner};
 use crate::saps::tp::TpUnitdataInd;
@@ -14,7 +15,8 @@ use crate::entities::phy::enums::burst::*;
 use crate::entities::phy::components::slotter::{build_ndb, build_sdb};
 use crate::entities::phy::traits::rxtx_dev::RxBurstBits;
 use crate::entities::TetraEntityTrait;
-use crate::entities::umac::subcomp::bs_channel_scheduler::MACSCHED_TX_AHEAD;
+use crate::entities::umac::subcomp::bs_sched::MACSCHED_TX_AHEAD;
+use crossbeam_channel::Sender;
 
 use super::traits::rxtx_dev::{RxTxDev, TxSlotBits};
 use super::components::phy_io_file::PhyIoFile;
@@ -23,34 +25,55 @@ pub struct PhyBs<D: RxTxDev> {
 
     self_component: TetraEntity,
     config: SharedConfig,
+    /// Channel for asynchronous downlink TX data logging
+    dl_tx_sender: Option<Sender<FileWriteMsg>>,
+    /// Channel for asynchronous uplink RX data logging
+    ul_rx_sender: Option<Sender<FileWriteMsg>>,
 
+    /// Testing mode: Transmit input data from file instead of from stack
     dl_input_file: Option<PhyIoFile>,
-    dl_output_file: Option<PhyIoFile>,
+    /// Testing mode: Parse input data from file instead of from SDR
     ul_input_file: Option<PhyIoFile>,
-    ul_output_file: Option<PhyIoFile>,
 
     /// RX/TX device
     rxtxdev: D,
+
+    tick: u64,
 }
 
 impl <D: RxTxDev>PhyBs<D> {
     pub fn new(config: SharedConfig, rxtxdev: D) -> Self {
+
+        let c = &config.config().phy_io;
+        
+        // Create async writers for file logging of generated DL and received UL signals
+        let dl_tx_logger = c.dl_tx_file.as_ref()
+            .and_then(|f| PhyIoFile::create_async_writer(f, "dl_tx_logger".to_string()).ok());
+        let ul_rx_logger = c.ul_rx_file.as_ref()
+            .and_then(|f| PhyIoFile::create_async_writer(f, "ul_rx_logger".to_string()).ok());
+
+        // Open input files overriding either generated DL or received UL data
+        let dl_input_file = if let Some(ref f) = c.dl_input_file {
+            Some(PhyIoFile::new(f, PhyIoFileMode::ReadRepeat).expect("Failed to open dl_input_file"))
+        } else {
+            None
+        };
+        let ul_input_file = if let Some(ref f) = c.ul_input_file {
+            Some(PhyIoFile::new(f, PhyIoFileMode::Read).expect("Failed to open ul_input_file"))
+        } else {
+            None
+        };
+
         Self {
             self_component: TetraEntity::Phy,
             config,
-            dl_input_file: None,
-            dl_output_file: None,
-            ul_input_file: None,
-            ul_output_file: None,
+            dl_tx_sender: dl_tx_logger,
+            ul_rx_sender: ul_rx_logger,
+            dl_input_file,
+            ul_input_file,
             rxtxdev,
+            tick: 0,
         }
-    }
-
-    pub fn set_io_files(&mut self, dl_input_file: Option<PhyIoFile>, dl_output_file: Option<PhyIoFile>, ul_input_file: Option<PhyIoFile>, ul_output_file: Option<PhyIoFile>) {
-        self.dl_input_file = dl_input_file;
-        self.dl_output_file = dl_output_file;
-        self.ul_input_file = ul_input_file;
-        self.ul_output_file = ul_output_file;
     }
 
     fn send_rxblock_to_lmac(queue: &mut MessageQueue, train_type: TrainingSequence, burst_type: BurstType, block_type: PhyBlockType, block_num: PhyBlockNum, bits: BitBuffer) {
@@ -117,18 +140,18 @@ impl <D: RxTxDev>PhyBs<D> {
         // Handle TpUnitdataReq with a TX slot
         // Prepare TxSlotBits for transmission
         // TODO FIXME: optimize
+
+        self.tick += 1;
         
         let SapMsgInner::TpUnitdataReq(prim) = message.msg else {panic!()};
 
         // Generate block (from file or from LMAC data)
-        let mut burst = [0u8; TIMESLOT_TYPE4_BITS];
+        let mut dl_burst = [0u8; TIMESLOT_TYPE4_BITS];
         if let Some(dl_input_file) = &mut self.dl_input_file {
-            
+
             // Code for testing mode, when replaying from DL input file
-            if let Err(e) = dl_input_file.read_block(&mut burst) {
-                panic!("DL input file error: {:?}", e);
-            }
-            
+            dl_input_file.read_block(&mut dl_burst).expect("Failed to read dl_input_file data");
+
         } else {
 
             // We received data from LMAC, convert BBK block to bitarr
@@ -137,7 +160,7 @@ impl <D: RxTxDev>PhyBs<D> {
             prim.bbk.unwrap().to_bitarr(&mut bbk);
 
             // Build NDB or SDB burst
-            burst = match prim.burst_type {
+            dl_burst = match prim.burst_type {
                 BurstType::SDB => {
                     // SDB burst
                     assert!(prim.train_type == TrainingSequence::SyncTrainSeq);
@@ -178,19 +201,17 @@ impl <D: RxTxDev>PhyBs<D> {
             };
         }
 
-        // Code for testing mode, when capturing all DL output to file
-        if let Some(dl_output_file) = &mut self.dl_output_file {
-            if let Err(e) = dl_output_file.write_block(&mut burst) {
-                panic!("DL output file error: {:?}", e);
-            }
-        } 
-
         // Prepare the TX slot for the tx device
         let tx_slot: [TxSlotBits; 1] = [TxSlotBits {
             time: message.dltime.add_timeslots(MACSCHED_TX_AHEAD as i32),
-            slot: Some(&burst),
+            slot: Some(&dl_burst),
             ..Default::default()
         }];
+
+        // Code for testing mode, when capturing all DL output to file
+        if let Some(dl_tx_sender) = &self.dl_tx_sender {
+            let _ = dl_tx_sender.try_send(FileWriteMsg::WriteBlock(dl_burst.to_vec()));
+        } 
 
         // Transmit slot and receive rx data (if any trainseq was found)
         // This function is blocking and the source of timing sync in the whole stack
@@ -206,26 +227,41 @@ impl <D: RxTxDev>PhyBs<D> {
         // The Lmac error correction will eliminate the false positives
         for rx_slot in rx {
             if let Some(rx_slot) = rx_slot {
-                
                 let mut slot_sent = false;
                 if rx_slot.slot.train_type != TrainingSequence::NotFound {
-                    tracing::debug!("Received full slot at time: {:?}: {:?}", rx_slot.time, rx_slot.slot.train_type);
+                    tracing::debug!("rx_tpsap_prim got {:?} in fullslot at time: {}", rx_slot.slot.train_type, rx_slot.time);
+
+                    if let Some(ul_rx_sender) = &self.ul_rx_sender {
+                        // Log received data to file (non-blocking)
+                        let _ = ul_rx_sender.try_send(FileWriteMsg::WriteHeaderAndBlock(3, self.tick, rx_slot.slot.bits.to_vec()));
+                    }
+
                     Self::split_rxslot_and_send_to_lmac(queue, &rx_slot.slot);
                     slot_sent = true;
                 }
                 if rx_slot.subslot1.train_type != TrainingSequence::NotFound {
-                    tracing::debug!("Received subslot1 at time: {:?}: {:?}", rx_slot.time, rx_slot.subslot1.train_type);
+                    tracing::debug!("rx_tpsap_prim got {:?} in subslot1 at time: {}", rx_slot.subslot1.train_type, rx_slot.time);
                     if slot_sent {
                         tracing::warn!("Sending same burst twice to LMAC");
                     } 
+                    if let Some(ul_rx_sender) = &self.ul_rx_sender {
+                        // Log received data to file (non-blocking)
+                        let _ = ul_rx_sender.try_send(FileWriteMsg::WriteHeaderAndBlock(1, self.tick, rx_slot.subslot1.bits.to_vec()));
+                    }
+
                     Self::split_rxslot_and_send_to_lmac(queue, &rx_slot.subslot1);
                     slot_sent = true;
                 }
                 if rx_slot.subslot2.train_type != TrainingSequence::NotFound {
-                    tracing::debug!("Received subslot2 at time: {:?}: {:?}", rx_slot.time, rx_slot.subslot2.train_type);
+                    tracing::debug!("rx_tpsap_prim got {:?} in subslot2 at time: {}", rx_slot.subslot2.train_type, rx_slot.time);
                     if slot_sent {
                         tracing::warn!("Sending same burst twice to LMAC");
                     } 
+                    if let Some(ul_rx_sender) = &self.ul_rx_sender {
+                        // Log received data to file (non-blocking)
+                        let _ = ul_rx_sender.try_send(FileWriteMsg::WriteHeaderAndBlock(2, self.tick, rx_slot.subslot2.bits.to_vec()));
+                    }
+
                     Self::split_rxslot_and_send_to_lmac(queue, &rx_slot.subslot2);
                 }
             }
@@ -247,7 +283,7 @@ impl<D: RxTxDev + Send + 'static> TetraEntityTrait for PhyBs<D> {
 
     fn rx_prim(&mut self, queue: &mut MessageQueue, message: SapMsg) {
         
-        tracing::debug!("rx_prim: {:?}", message);
+        tracing::trace!("rx_prim: {:?}", message);
         let sap = message.sap;
 
         match sap {

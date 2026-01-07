@@ -29,8 +29,8 @@ impl CmceBs {
          }
     }
 
-    pub fn rx_unitdata_ind(&mut self, _queue: &mut MessageQueue, mut message: SapMsg) {
-        tracing::trace!("rx_unitdata_ind");
+    pub fn rx_lcmc_mle_unitdata_ind(&mut self, _queue: &mut MessageQueue, mut message: SapMsg) {
+        tracing::trace!("rx_lcmc_mle_unitdata_ind");
         
         // Handle the incoming unit data indication
         let SapMsgInner::LcmcMleUnitdataInd(prim) = &mut message.msg else { panic!(); };
@@ -43,9 +43,34 @@ impl CmceBs {
             return;
         };
 
-        tracing::debug!("CmceBs rx_unitdata_ind for pdu_type {:?}", pdu_type);
-
-        unimplemented_log!("{:?}", pdu_type);
+        match pdu_type {
+            CmcePduTypeUl::UAlert => 
+                unimplemented_log!("UAlert"),
+            CmcePduTypeUl::UConnect => 
+                unimplemented_log!("UConnect"),
+            CmcePduTypeUl::UDisconnect => 
+                unimplemented_log!("UDisconnect"),
+            CmcePduTypeUl::UInfo => 
+                unimplemented_log!("UInfo"),
+            CmcePduTypeUl::URelease => 
+                unimplemented_log!("URelease"),
+            CmcePduTypeUl::USetup => 
+                unimplemented_log!("USetup"),
+            CmcePduTypeUl::UStatus => 
+                unimplemented_log!("UStatus"),
+            CmcePduTypeUl::UTxCeased => 
+                unimplemented_log!("UTxCeased"),
+            CmcePduTypeUl::UTxDemand => 
+                unimplemented_log!("UTxDemand"),
+            CmcePduTypeUl::UCallRestore => 
+                unimplemented_log!("UCallRestore"),
+            CmcePduTypeUl::USdsData => 
+                unimplemented_log!("USdsData"),
+            CmcePduTypeUl::UFacility => 
+                unimplemented_log!("UFacility"),
+            CmcePduTypeUl::CmceFunctionNotSupported => 
+                unimplemented_log!("CmceFunctionNotSupported"),
+        };
     }
 }
 
@@ -68,7 +93,7 @@ impl TetraEntityTrait for CmceBs {
 
         match message.msg {
             SapMsgInner::LcmcMleUnitdataInd(_) => {
-                self.rx_unitdata_ind(queue, message);
+                self.rx_lcmc_mle_unitdata_ind(queue, message);
             }
             _ => {
                 panic!();

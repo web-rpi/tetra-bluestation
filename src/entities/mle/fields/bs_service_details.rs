@@ -1,7 +1,7 @@
 use core::fmt;
 
 use crate::{assert_warn, common::bitbuffer::BitBuffer};
-use crate::common::pdu_parse_error::PduParseError;
+use crate::common::pdu_parse_error::PduParseErr;
 
 /// Clause 18.5.2.1 D-MLE-SYSINFO Table 18.26: BS Service details information element
 #[derive(Debug, Clone)]
@@ -33,7 +33,7 @@ pub struct BsServiceDetails {
 }
 
 impl BsServiceDetails {
-    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseError> {
+    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseErr> {
         let registration = buf.read_field(1, "registration")? != 0;
         let deregistration = buf.read_field(1, "deregistration")? != 0;
         let priority_cell = buf.read_field(1, "priority_cell")? != 0;

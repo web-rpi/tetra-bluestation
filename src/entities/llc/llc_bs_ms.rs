@@ -65,7 +65,8 @@ impl Llc {
 
     /// Returns the next sequence number for this link
     fn get_expected_in_ack_n(&mut self, _tn: u8, _addr: TetraAddress) -> u8 {
-        unimplemented_log!("get_expected_in_ack_n not implemented on a per-link basis");
+        // unimplemented_log!("get_expected_in_ack_n not implemented on a per-link basis");
+        tracing::debug!("unimplemented: get_expected_in_ack_n not implemented on a per-link basis");
         self.next_bl_ack_seq ^= 1;
         self.next_bl_ack_seq ^ 1
     }
@@ -146,7 +147,7 @@ impl Llc {
             let sdu_len = prim.tl_sdu.get_len_remaining();
             pdu_buf.copy_bits(&mut prim.tl_sdu, sdu_len);
             pdu_buf.seek(0);
-            tracing::debug!("rx_tla_tldata_req_bl: -> {:?} sdu {}", pdu, pdu_buf.dump_bin());
+            tracing::debug!("-> {:?} sdu {}", pdu, pdu_buf.dump_bin());
         } else {
             // BL-DATA (with or without FCS)
             let pdu = BlData {
@@ -158,7 +159,7 @@ impl Llc {
             let sdu_len = prim.tl_sdu.get_len_remaining();
             pdu_buf.copy_bits(&mut prim.tl_sdu, sdu_len);
             pdu_buf.seek(0);
-            tracing::debug!("rx_tla_tldata_req_bl: -> {:?} sdu {}", pdu, pdu_buf.dump_bin());
+            tracing::debug!("-> {:?} sdu {}", pdu, pdu_buf.dump_bin());
         }
         
 
@@ -267,7 +268,7 @@ impl Llc {
             LlcPduType::BlAdata | LlcPduType::BlAdataFcs => {
                 match BlAdata::from_bitbuf(&mut pdu) {
                     Ok(pdu) => {
-                        tracing::debug!("<- BlAdata: {:?}", pdu);
+                        tracing::debug!("<- {:?}", pdu);
                         (pdu.has_fcs, Some(pdu.ns), Some(pdu.nr))
                     }
                     Err(e) => {
@@ -280,7 +281,7 @@ impl Llc {
             LlcPduType::BlData | LlcPduType ::BlDataFcs => {
                 match BlData::from_bitbuf(&mut pdu) {
                     Ok(pdu) => {
-                        tracing::debug!("<- BlData: {:?}", pdu);
+                        tracing::debug!("<- {:?}", pdu);
                         (pdu.has_fcs, Some(pdu.ns), None)
                     }
                     Err(e) => {
@@ -292,7 +293,7 @@ impl Llc {
             LlcPduType::BlAck | LlcPduType::BlAckFcs => {
                 match BlAck::from_bitbuf(&mut pdu) {
                     Ok(pdu) => {
-                        tracing::debug!("<- BlAck: {:?}", pdu);
+                        tracing::debug!("<- {:?}", pdu);
                         (pdu.has_fcs, None, Some(pdu.nr))
                     }
                     Err(e) => {
@@ -304,7 +305,7 @@ impl Llc {
             LlcPduType::BlUdata | LlcPduType::BlUdataFcs => {
                 match BlUdata::from_bitbuf(&mut pdu) {
                     Ok(pdu) => {
-                        tracing::debug!("<- BlUdata: {:?}", pdu);
+                        tracing::debug!("<- {:?}", pdu);
                         (pdu.has_fcs, None, None)
                     }
                     Err(e) => {
@@ -446,7 +447,7 @@ impl TetraEntityTrait for Llc {
             };
             pdu.to_bitbuf(&mut pdu_buf);
             pdu_buf.seek(0);
-            tracing::debug!("tick_end: -> {:?} {}", pdu, pdu_buf.dump_bin());
+            tracing::debug!("-> {:?} {}", pdu, pdu_buf.dump_bin());
 
             let sapmsg = SapMsg {
                 sap: Sap::TmaSap,

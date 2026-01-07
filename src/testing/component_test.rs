@@ -1,9 +1,9 @@
 use crate::common::freqs::FreqInfo;
+use crate::common::tdma_time::TdmaTime;
 use crate::config::stack_config::{CfgCellInfo, CfgNetInfo, CfgPhyIo, PhyBackend, SharedConfig, StackConfig, StackMode, StackState};
 use crate::common::messagerouter::MessageRouter;
 use crate::entities::cmce::cmce_ms::CmceMs;
 use crate::entities::TetraEntityTrait;
-use crate::run_stack;
 use crate::saps::sapmsg::SapMsg;
 use crate::common::tetra_entities::TetraEntity;
 
@@ -43,6 +43,7 @@ pub fn default_test_config(stack_mode: StackMode) -> StackConfig {
     // Put together components and return this proto config
     StackConfig {
         stack_mode,
+        debug_log: None,
         phy_io,
         net: net_info,
         cell: cell_info,
@@ -58,17 +59,24 @@ pub struct ComponentTest {
     pub router: MessageRouter,
     // components: Vec<TetraEntity>,
     pub sinks: Vec<TetraEntity>,
+    start_dl_time: TdmaTime,
 }
 
 impl ComponentTest {
     
-    pub fn new(config: StackConfig) -> Self {
+    pub fn new(config: StackConfig, start_dl_time: Option<TdmaTime>) -> Self {
         let shared_config = SharedConfig::from_parts(config, StackState::default());
         let config_clone = shared_config.clone();
+        let mut mr = MessageRouter::new(config_clone);
+        
+        let start_dl_time = start_dl_time.unwrap_or_default();
+        mr.set_dl_time(start_dl_time);
+
         Self {
             config: shared_config,
-            router: MessageRouter::new(config_clone),
+            router: mr,
             sinks: vec![],
+            start_dl_time: start_dl_time,
         }
     }
     
@@ -102,7 +110,9 @@ impl ComponentTest {
                     self.register_entity(lmac);
                 }
                 TetraEntity::Umac => {
-                    let umac = UmacBs::new(self.config.clone());
+                    let mut umac = UmacBs::new(self.config.clone());
+                    // Prepare channel scheduler for next tick_start
+                    umac.channel_scheduler.set_dl_time(self.start_dl_time.add_timeslots(-1));
                     self.router.register_entity(Box::new(umac));
                 }
                 TetraEntity::Llc => {
@@ -181,8 +191,8 @@ impl ComponentTest {
         self.router.register_entity(Box::new(entity));
     }
 
-    pub fn run_ticks(&mut self, num_ticks: Option<usize>) {
-        run_stack(&mut self.router, num_ticks);
+    pub fn run_stack(&mut self, num_ticks: Option<usize>) {
+        self.router.run_stack(num_ticks);
     }
 
     pub fn submit_message(&mut self, message: SapMsg) {

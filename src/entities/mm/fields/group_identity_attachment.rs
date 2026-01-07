@@ -1,6 +1,7 @@
 use core::fmt;
 
-use crate::common::{bitbuffer::BitBuffer, pdu_parse_error::PduParseError};
+use crate::common::bitbuffer::BitBuffer;
+use crate::common::pdu_parse_error::PduParseErr;
 
 /// 16.10.19 Group Identity Attachment
 #[derive(Debug, Clone)]
@@ -16,7 +17,7 @@ pub struct GroupIdentityAttachment {
 }
 
 impl GroupIdentityAttachment {
-    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseError> {
+    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseErr> {
         let mut s = GroupIdentityAttachment {
             group_identity_attachment_lifetime: 0,
             class_of_usage: 0,

@@ -19,7 +19,6 @@ impl MmMs {
 
     fn rx_lmm_mle_unitdata_ind(&mut self, _queue: &mut MessageQueue, mut message: SapMsg) {
 
-        // unimplemented_log!("rx_lmm_mle_unitdata_ind not implemented for MM component");
         let SapMsgInner::LmmMleUnitdataInd(prim) = &mut message.msg else {panic!()};
 
         let Some(bits) = prim.sdu.peek_bits(4) else {
@@ -32,34 +31,33 @@ impl MmMs {
             return;
         };
 
-
         match pdu_type {
             MmPduTypeDl::DOtar => 
-                unimplemented_log!("DOtar not implemented"),
+                unimplemented_log!("DOtar"),
             MmPduTypeDl::DAuthentication => 
-                unimplemented_log!("DAuthentication not implemented"),
+                unimplemented_log!("DAuthentication"),
             MmPduTypeDl::DCkChangeDemand => 
-                unimplemented_log!("DCkChangeDemand not implemented"),
+                unimplemented_log!("DCkChangeDemand"),
             MmPduTypeDl::DDisable => 
-                unimplemented_log!("DDisable not implemented"),
+                unimplemented_log!("DDisable"),
             MmPduTypeDl::DEnable => 
-                unimplemented_log!("DEnable not implemented"),
+                unimplemented_log!("DEnable"),
             MmPduTypeDl::DLocationUpdateAccept => 
-                unimplemented_log!("DLocationUpdateAccept not implemented"),
+                unimplemented_log!("DLocationUpdateAccept"),
             MmPduTypeDl::DLocationUpdateCommand => 
-                unimplemented_log!("DLocationUpdateCommand not implemented"),
+                unimplemented_log!("DLocationUpdateCommand"),
             MmPduTypeDl::DLocationUpdateReject => 
-                unimplemented_log!("DLocationUpdateReject not implemented"),
+                unimplemented_log!("DLocationUpdateReject"),
             MmPduTypeDl::DLocationUpdateProceeding => 
-                unimplemented_log!("DLocationUpdateProceeding not implemented"),
+                unimplemented_log!("DLocationUpdateProceeding"),
             MmPduTypeDl::DAttachDetachGroupIdentity => 
-                unimplemented_log!("DAttachDetachGroupIdentity not implemented"),
+                unimplemented_log!("DAttachDetachGroupIdentity"),
             MmPduTypeDl::DAttachDetachGroupIdentityAcknowledgement => 
-                unimplemented_log!("DAttachDetachGroupIdentityAcknowledgement not implemented"),
+                unimplemented_log!("DAttachDetachGroupIdentityAcknowledgement"),
             MmPduTypeDl::DMmStatus => 
-                unimplemented_log!("DMmStatus not implemented"),
+                unimplemented_log!("DMmStatus"),
             MmPduTypeDl::MmPduFunctionNotSupported => 
-                unimplemented_log!("MmPduFunctionNotSupported not implemented"),
+                unimplemented_log!("MmPduFunctionNotSupported"),
         };
     }
 }

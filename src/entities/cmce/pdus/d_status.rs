@@ -1,11 +1,11 @@
 use core::fmt;
 
 use crate::common::bitbuffer::BitBuffer;
-use crate::common::pdu_parse_error::PduParseError;
-use crate::common::typed_pdu_fields;
+use crate::common::pdu_parse_error::PduParseErr;
+use crate::common::typed_pdu_fields::*;
+use crate::entities::cmce::enums::type3_elem_id::CmceType3ElemId;
 use crate::expect_pdu_type;
 use crate::entities::cmce::enums::cmce_pdu_type_dl::CmcePduTypeDl;
-use crate::entities::cmce::components::type3_fields::CmceType3Field;
 
 /// Representation of the D-STATUS PDU (Clause 14.7.1.11).
 /// This PDU shall be the PDU for receiving a pre-coded status message.
@@ -24,15 +24,15 @@ pub struct DStatus {
     /// Type1, 16 bits, Pre-coded status
     pub pre_coded_status: u16,
     /// Type3, External subscriber number
-    pub external_subscriber_number: Option<CmceType3Field>,
+    pub external_subscriber_number: Option<Type3FieldGeneric>,
     /// Type3, DM-MS address
-    pub dm_ms_address: Option<CmceType3Field>,
+    pub dm_ms_address: Option<Type3FieldGeneric>,
 }
 
 #[allow(unreachable_code)] // TODO FIXME review, finalize and remove this
 impl DStatus {
     /// Parse from BitBuffer
-    pub fn from_bitbuf(buffer: &mut BitBuffer) -> Result<Self, PduParseError> {
+    pub fn from_bitbuf(buffer: &mut BitBuffer) -> Result<Self, PduParseErr> {
 
         let pdu_type = buffer.read_field(5, "pdu_type")?;
         expect_pdu_type!(pdu_type, CmcePduTypeDl::DStatus)?;
@@ -51,24 +51,20 @@ impl DStatus {
         let pre_coded_status = buffer.read_field(16, "pre_coded_status")? as u16;
 
         // obit designates presence of any further type2, type3 or type4 fields
-        let mut obit = typed_pdu_fields::delimiters::read_obit(buffer)?;
+        let mut obit = delimiters::read_obit(buffer)?;
 
 
         // Type3
-        let external_subscriber_number = if obit { 
-            CmceType3Field::parse(buffer, "external_subscriber_number")? as Option<CmceType3Field>
-        } else { None };
+        let external_subscriber_number = typed::parse_type3_generic(obit, buffer, CmceType3ElemId::ExtSubscriberNum)?;
 
         // Type3
-        let dm_ms_address = if obit { 
-            CmceType3Field::parse(buffer, "dm_ms_address")? as Option<CmceType3Field>
-        } else { None };
+        let dm_ms_address = typed::parse_type3_generic(obit, buffer, CmceType3ElemId::DmMsAddr)?;
 
         
         // Read trailing mbit (if not previously encountered)
         obit = if obit { buffer.read_field(1, "trailing_obit")? == 1 } else { obit };
         if obit {
-            return Err(PduParseError::InvalidObitValue);
+            return Err(PduParseErr::InvalidTrailingMbitValue);
         }
 
         Ok(DStatus { 
@@ -82,7 +78,7 @@ impl DStatus {
     }
 
     /// Serialize this PDU into the given BitBuffer.
-    pub fn to_bitbuf(&self, buffer: &mut BitBuffer) -> Result<(), PduParseError> {
+    pub fn to_bitbuf(&self, buffer: &mut BitBuffer) -> Result<(), PduParseErr> {
         // PDU Type
         buffer.write_bits(CmcePduTypeDl::DStatus.into_raw(), 5);
         // Type1
@@ -99,20 +95,18 @@ impl DStatus {
         buffer.write_bits(self.pre_coded_status as u64, 16);
 
         // Check if any optional field present and place o-bit
-        let obit_val = self.external_subscriber_number.is_some() || self.dm_ms_address.is_some() ;
-        typed_pdu_fields::delimiters::write_obit(buffer, obit_val as u8);
-        if !obit_val { return Ok(()); }
+        let obit = self.external_subscriber_number.is_some() || self.dm_ms_address.is_some() ;
+        delimiters::write_obit(buffer, obit as u8);
+        if !obit { return Ok(()); }
 
         // Type3
-        if let Some(ref value) = self.external_subscriber_number {
-            CmceType3Field::write(buffer, value.field_type, value.data, value.len);
-        }
+        typed::write_type3_generic(obit, buffer, &self.external_subscriber_number, CmceType3ElemId::ExtSubscriberNum)?;
+        
         // Type3
-        if let Some(ref value) = self.dm_ms_address {
-            CmceType3Field::write(buffer, value.field_type, value.data, value.len);
-        }
+        typed::write_type3_generic(obit, buffer, &self.dm_ms_address, CmceType3ElemId::DmMsAddr)?;
+        
         // Write terminating m-bit
-        typed_pdu_fields::delimiters::write_mbit(buffer, 0);
+        delimiters::write_mbit(buffer, 0);
         Ok(())
     }
 }

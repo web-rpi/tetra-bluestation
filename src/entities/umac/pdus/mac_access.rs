@@ -1,7 +1,7 @@
 use core::fmt;
 
 use crate::{common::{address::{SsiType, TetraAddress}, bitbuffer::BitBuffer}, entities::umac::{enums::reservation_requirement::ReservationRequirement, subcomp::event_labels::EventLabel}};
-use crate::common::pdu_parse_error::PduParseError;
+use crate::common::pdu_parse_error::PduParseErr;
 
 /// Clause 21.4.2.1 MAC-ACCESS
 #[derive(Debug, Clone)]
@@ -33,7 +33,7 @@ pub struct MacAccess {
 }
 
 impl MacAccess {
-    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseError> {
+    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseErr> {
         // required constant mac_pdu_type
         let mac_pdu_type = buf.read_field(1, "mac_pdu_type")?;
         assert!(mac_pdu_type == 0);
@@ -85,7 +85,7 @@ impl MacAccess {
                 let frag = buf.read_field(1, "frag_flag")? != 0; 
                 let val = buf.read_field(4, "reservation_req")?;
                 let res_req = ReservationRequirement::try_from(val)
-                    .map_err(|_| PduParseError::InvalidValue { field: "reservation_req", value: val })?;
+                    .map_err(|_| PduParseErr::InvalidValue { field: "reservation_req", value: val })?;
                 (None, Some(frag), Some(res_req))
             }
         } else {

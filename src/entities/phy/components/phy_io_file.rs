@@ -1,17 +1,21 @@
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write, Seek, SeekFrom};
 use std::path::Path;
+use std::thread;
+use crossbeam_channel::{unbounded, Sender};
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum PhyIoFileMode {
-    Read,
-    Write,
+#[derive(Debug, Clone)]
+pub enum FileWriteMsg {
+    WriteBlock(Vec<u8>),
+    WriteHeaderAndBlock(u8, u64, Vec<u8>),
+    Shutdown,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum PhyIoFileEofBehavior {
-    Stop,
-    Repeat,
+pub enum PhyIoFileMode {
+    Write,
+    Read,
+    ReadRepeat,
 }
 
 #[derive(Debug)]
@@ -29,7 +33,6 @@ impl From<io::Error> for PhyIoError {
 pub struct PhyIoFile {
     file: File,
     mode: PhyIoFileMode,
-    eof_behavior: PhyIoFileEofBehavior,
     file_size: u64,
 }
 
@@ -38,11 +41,10 @@ impl PhyIoFile {
     /// 
     /// # Arguments
     /// * `filename` - Path to the file
-    /// * `mode` - Read or Write mode
-    /// * `eof_behavior` - Behavior when EOF is reached (only relevant for Read mode)
-    pub fn new<P: AsRef<Path>>(filename: P, mode: PhyIoFileMode, eof_behavior: PhyIoFileEofBehavior) -> io::Result<Self> {
+    /// * `mode` - Write, Read, or ReadRepeat mode
+    pub fn new<P: AsRef<Path>>(filename: P, mode: PhyIoFileMode) -> io::Result<Self> {
         let file = match mode {
-            PhyIoFileMode::Read => {
+            PhyIoFileMode::Read | PhyIoFileMode::ReadRepeat => {
                 OpenOptions::new()
                     .read(true)
                     .open(&filename)?
@@ -65,7 +67,6 @@ impl PhyIoFile {
         Ok(Self {
             file,
             mode,
-            eof_behavior,
             file_size,
         })
     }
@@ -80,10 +81,7 @@ impl PhyIoFile {
     /// * `Err(PhyIoError::Eof)` - EOF reached and eof_behavior is Stop
     /// * `Err(PhyIoError::Io)` - I/O error occurred
     pub fn read_block(&mut self, buffer: &mut [u8]) -> Result<(), PhyIoError> {
-        if self.mode != PhyIoFileMode::Read {
-            return Err(PhyIoError::Io("File not opened for reading".to_string()));
-        }
-
+        
         let block_size = buffer.len();
         let mut bytes_read = 0;
 
@@ -91,11 +89,11 @@ impl PhyIoFile {
             match self.file.read(&mut buffer[bytes_read..]) {
                 Ok(0) => {
                     // EOF reached
-                    match self.eof_behavior {
-                        PhyIoFileEofBehavior::Stop => {
+                    match self.mode {
+                        PhyIoFileMode::Read => {
                             return Err(PhyIoError::Eof);
                         }
-                        PhyIoFileEofBehavior::Repeat => {
+                        PhyIoFileMode::ReadRepeat => {
                             // Seek back to beginning and continue reading
                             self.file.seek(SeekFrom::Start(0))?;
                             
@@ -106,6 +104,9 @@ impl PhyIoFile {
                                 bytes_read = 0;
                                 tracing::debug!("Discarding partial block at EOF, repeating from start");
                             }
+                        }
+                        PhyIoFileMode::Write => {
+                            panic!(); // never happens
                         }
                     }
                 }
@@ -118,6 +119,17 @@ impl PhyIoFile {
             }
         }
 
+        Ok(())
+    }
+
+    pub fn write_header_and_block(&mut self, field_type: u8, timestamp: u64, data: &[u8]) -> Result<(), PhyIoError> {
+        if self.mode != PhyIoFileMode::Write {
+            return Err(PhyIoError::Io("File not opened for writing".to_string()));
+        }
+
+        self.file.write_all(&field_type.to_be_bytes())?;
+        self.file.write_all(&timestamp.to_be_bytes())?;
+        self.write_block(data)?;
         Ok(())
     }
 
@@ -158,6 +170,35 @@ impl PhyIoFile {
     pub fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
         self.file.seek(pos)
     }
+
+    /// Create an async writer that spawns a background thread for file writes
+    /// Returns a Sender that can be used to queue write operations
+    pub fn create_async_writer<P: AsRef<Path>>(filename: P, thread_name: String) -> io::Result<Sender<FileWriteMsg>> {
+        let file_path = filename.as_ref().to_path_buf();
+        let (sender, receiver) = unbounded::<FileWriteMsg>();
+        // let thread_name = format!("phy-io-writer-{}", file_path.display());
+                
+        thread::Builder::new()
+            .name(thread_name)
+            .spawn(move || {
+                if let Ok(mut file) = PhyIoFile::new(&file_path, PhyIoFileMode::Write) {
+                    while let Ok(msg) = receiver.recv() {
+                        match msg {
+                            FileWriteMsg::WriteBlock(data) => {
+                                let _ = file.write_block(&data);
+                            }
+                            FileWriteMsg::WriteHeaderAndBlock(field_type, timestamp, data) => {
+                                let _ = file.write_header_and_block(field_type, timestamp, &data);
+                            }
+                            FileWriteMsg::Shutdown => break,
+                        }
+                    }
+                }
+            })
+            .expect("Failed to spawn phy-io-writer thread");
+        
+        Ok(sender)
+    }
 }
 
 #[cfg(test)]
@@ -192,7 +233,7 @@ mod tests {
         
         // Write some data
         {
-            let mut writer = PhyIoFile::new(&path, PhyIoFileMode::Write, PhyIoFileEofBehavior::Stop).unwrap();
+            let mut writer = PhyIoFile::new(&path, PhyIoFileMode::Write).unwrap();
             let data = [1u8, 2, 3, 4, 5, 6, 7, 8];
             writer.write_block(&data).unwrap();
             writer.flush().unwrap();
@@ -200,7 +241,7 @@ mod tests {
 
         // Read it back
         {
-            let mut reader = PhyIoFile::new(&path, PhyIoFileMode::Read, PhyIoFileEofBehavior::Stop).unwrap();
+            let mut reader = PhyIoFile::new(&path, PhyIoFileMode::Read).unwrap();
             let mut buffer = [0u8; 8];
             reader.read_block(&mut buffer).unwrap();
             assert_eq!(buffer, [1, 2, 3, 4, 5, 6, 7, 8]);
@@ -214,7 +255,7 @@ mod tests {
     fn test_eof_stop_behavior() {
         let (_filename, path) = create_temp_file(&[1u8, 2, 3, 4]);
 
-        let mut reader = PhyIoFile::new(&path, PhyIoFileMode::Read, PhyIoFileEofBehavior::Stop).unwrap();
+        let mut reader = PhyIoFile::new(&path, PhyIoFileMode::Read).unwrap();
         let mut buffer = [0u8; 4];
         
         // First read should succeed
@@ -232,7 +273,7 @@ mod tests {
     fn test_eof_loop_behavior() {
         let (_filename, path) = create_temp_file(&[1u8, 2, 3, 4]);
 
-        let mut reader = PhyIoFile::new(&path, PhyIoFileMode::Read, PhyIoFileEofBehavior::Repeat).unwrap();
+        let mut reader = PhyIoFile::new(&path, PhyIoFileMode::ReadRepeat).unwrap();
         let mut buffer = [0u8; 4];
         
         // First read
@@ -255,7 +296,7 @@ mod tests {
     fn test_partial_block_loop() {
         let (_filename, path) = create_temp_file(&[1u8, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 
-        let mut reader = PhyIoFile::new(&path, PhyIoFileMode::Read, PhyIoFileEofBehavior::Repeat).unwrap();
+        let mut reader = PhyIoFile::new(&path, PhyIoFileMode::ReadRepeat).unwrap();
         let mut buffer = [0u8; 8];
         
         // First read gets first 8 bytes

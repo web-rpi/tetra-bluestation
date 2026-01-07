@@ -1,6 +1,6 @@
 use core::fmt;
 
-use crate::{common::{bitbuffer::BitBuffer, pdu_parse_error::PduParseError}, entities::mm::fields::group_identity_attachment::GroupIdentityAttachment};
+use crate::{common::{bitbuffer::BitBuffer, pdu_parse_error::PduParseErr}, entities::mm::fields::group_identity_attachment::GroupIdentityAttachment};
 
 /// 16.10.22 Group identity downlink
 #[derive(Debug, Clone)]
@@ -22,7 +22,7 @@ pub struct GroupIdentityDownlink {
 }
 
 impl GroupIdentityDownlink {
-    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseError> {
+    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseErr> {
 
         let mut s = GroupIdentityDownlink {
             // attach_detach_type_identifier: 0,
@@ -56,7 +56,7 @@ impl GroupIdentityDownlink {
         Ok(s)
     }
 
-    pub fn to_bitbuf(&self, buf: &mut BitBuffer) {
+    pub fn to_bitbuf(&self, buf: &mut BitBuffer) -> Result<(), PduParseErr> {
 
         assert!(self.group_identity_attachment.is_some() ^ self.group_identity_detachment_uplink.is_some(), "need one of group_identity_attachment or group_identity_detachment_uplink");
         
@@ -74,12 +74,18 @@ impl GroupIdentityDownlink {
                     1
                 }
             } else {
-                assert!(self.vgssi.is_none(), "vgssi must be None if gssi is Some and address_extension is None");
+                if self.vgssi.is_some() {
+                    Err(PduParseErr::Inconsistency { field: "vgssi", reason: "vgssi must be None if gssi is Some and address_extension is None" })?;    
+                }
                 0
             }
         } else {
-            assert!(self.address_extension.is_none(), "address_extension must be None if gssi is None");
-            assert!(self.vgssi.is_some(), "vgssi must be Some if gssi is None");
+            if self.address_extension.is_some() {
+                Err(PduParseErr::Inconsistency { field: "address_extension", reason: "address_extension must be None if gssi is None" })?;
+            }
+            if self.vgssi.is_none() {
+                return Err(PduParseErr::Inconsistency { field: "vgssi", reason: "vgssi must be Some if gssi is None" });
+            }
             2
         };
 
@@ -87,6 +93,8 @@ impl GroupIdentityDownlink {
         if let Some(v) = self.gssi { buf.write_bits(v as u64, 24); }
         if let Some(v) = self.address_extension { buf.write_bits(v as u64, 24); }
         if let Some(v) = self.vgssi { buf.write_bits(v as u64, 24); }
+
+        Ok(())
     }
 }
 

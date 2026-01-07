@@ -7,9 +7,7 @@ use serde::Deserialize;
 use toml::Value;
 
 use crate::config::stack_config::{CfgPhyIo, PhyBackend};
-use crate::{
-    CfgCellInfo, CfgNetInfo, SharedConfig, StackConfig, StackMode, StackState,
-};
+use crate::{CfgCellInfo, CfgNetInfo, SharedConfig, StackConfig, StackMode, StackState};
 use super::stack_config_soapy::{CfgSoapySdr, LimeSdrCfg, SXceiverCfg, UsrpB2xxCfg};
 
 /// Build `SharedConfig` from a TOML configuration file
@@ -17,54 +15,43 @@ pub fn from_toml_str(toml_str: &str) -> Result<SharedConfig, Box<dyn std::error:
     let root: TomlConfigRoot = toml::from_str(toml_str)?;
 
     // Various sanity checks
-    if !root.config_version.eq("0.4") {
-        tracing::warn!("Unrecognized config_version: {}", root.config_version);
+    let expected_config_version = "0.5";
+    if !root.config_version.eq(expected_config_version) {
+        return Err(format!("Unrecognized config_version: {}, expect {}", root.config_version, expected_config_version).into());
     }
     if !root.extra.is_empty() {
-        tracing::warn!("Unrecognized top-level fields: {:?}", sorted_keys(&root.extra));
+        return Err(format!("Unrecognized top-level fields: {:?}", sorted_keys(&root.extra)).into());
     }
     if let Some(ref phy) = root.phy_io {
         if !phy.extra.is_empty() {
-            tracing::warn!("Unrecognized fields in phy_io: {:?}", sorted_keys(&phy.extra));
+            return Err(format!("Unrecognized fields: phy_io::{:?}", sorted_keys(&phy.extra)).into());
         }
         if let Some(ref soapy) = phy.soapysdr {
             if !soapy.extra.is_empty() {
-                tracing::warn!("Unrecognized fields in phy_io.soapysdr: {:?}", sorted_keys(&soapy.extra));
+                return Err(format!("Unrecognized fields: phy_io.soapysdr::{:?}", sorted_keys(&soapy.extra)).into());
             }
         }
     }
-    if let Some(ref ni) = root.net_info {
-        if !ni.extra.is_empty() {
-            tracing::warn!("Unrecognized fields in net_info: {:?}", sorted_keys(&ni.extra));
-        }
+    if !root.net_info.extra.is_empty() {
+        return Err(format!("Unrecognized fields in net_info: {:?}", sorted_keys(&root.net_info.extra)).into());
     }
     if let Some(ref ci) = root.cell_info {
         if !ci.extra.is_empty() {
-            tracing::warn!("Unrecognized fields in cell_info: {:?}", sorted_keys(&ci.extra));
+            return Err(format!("Unrecognized fields in cell_info: {:?}", sorted_keys(&ci.extra)).into());
         }
     }
     if let Some(ref ss) = root.stack_state {
         if !ss.extra.is_empty() {
-            tracing::warn!("Unrecognized fields in stack_state: {:?}", sorted_keys(&ss.extra));
+            return Err(format!("Unrecognized fields in stack_state: {:?}", sorted_keys(&ss.extra)).into());
         }
     }
-
-    // Require net_info to be explicitly set
-    let Some(net_info_dto) = root.net_info else {
-        return Err("net_info section is required in config file".into());
-    };
-    let Some(mcc) = net_info_dto.mcc else {
-        return Err("net_info.mcc is required in config file".into());
-    };
-    let Some(mnc) = net_info_dto.mnc else {
-        return Err("net_info.mnc is required in config file".into());
-    };
 
     // Build config from required and optional values
     let mut cfg = StackConfig {
         stack_mode: root.stack_mode,
+        debug_log: root.debug_log,
         phy_io: CfgPhyIo::default(),
-        net: CfgNetInfo { mcc, mnc },
+        net: CfgNetInfo { mcc: root.net_info.mcc, mnc: root.net_info.mnc },
         cell: CfgCellInfo::default(),
     };
 
@@ -93,7 +80,6 @@ pub fn from_reader<R: Read>(reader: R) -> Result<SharedConfig, Box<dyn std::erro
     let mut contents = String::new();
     let mut reader = BufReader::new(reader);
     reader.read_to_string(&mut contents)?;
-    
     from_toml_str(&contents)
 }
 
@@ -107,7 +93,12 @@ pub fn from_file<P: AsRef<Path>>(path: P) -> Result<SharedConfig, Box<dyn std::e
 
 fn apply_phy_io_patch(dst: &mut CfgPhyIo, src: PhyIoDto) {
     dst.backend = src.backend;
-    dst.input_file = src.input_file;
+    
+    dst.dl_tx_file = src.dl_tx_file;
+    dst.ul_rx_file = src.ul_rx_file;
+    dst.ul_input_file = src.ul_input_file;
+    dst.dl_input_file = src.dl_input_file;
+
     
     if let Some(soapy_dto) = src.soapysdr {
         let mut soapy_cfg = CfgSoapySdr::default();
@@ -242,13 +233,14 @@ fn sorted_keys(map: &HashMap<String, Value>) -> Vec<&str> {
 struct TomlConfigRoot {
     config_version: String,
     stack_mode: StackMode,
+    debug_log: Option<String>,
     
     // New phy_io structure
     #[serde(default)]
     phy_io: Option<PhyIoDto>,
     
     #[serde(default)]
-    net_info: Option<NetInfoDto>,
+    net_info: NetInfoDto,
 
     #[serde(default)]
     cell_info: Option<CellInfoDto>,
@@ -263,6 +255,11 @@ struct TomlConfigRoot {
 #[derive(Deserialize)]
 struct PhyIoDto {
     pub backend: PhyBackend,
+
+    dl_tx_file: Option<String>,
+    ul_rx_file: Option<String>,
+    ul_input_file: Option<String>,
+    dl_input_file: Option<String>,
     
     #[serde(default)]
     pub input_file: Option<String>,
@@ -324,8 +321,8 @@ struct SXceiverDto {
 
 #[derive(Default, Deserialize)]
 struct NetInfoDto {
-    pub mcc: Option<u16>,
-    pub mnc: Option<u16>,
+    pub mcc: u16,
+    pub mnc: u16,
 
     #[serde(flatten)]
     extra: HashMap<String, Value>,

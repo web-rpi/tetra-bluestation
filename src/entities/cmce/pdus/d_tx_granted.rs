@@ -1,11 +1,11 @@
 use core::fmt;
 
 use crate::common::bitbuffer::BitBuffer;
-use crate::common::pdu_parse_error::PduParseError;
-use crate::common::typed_pdu_fields;
+use crate::common::pdu_parse_error::PduParseErr;
+use crate::common::typed_pdu_fields::*;
+use crate::entities::cmce::enums::type3_elem_id::CmceType3ElemId;
 use crate::expect_pdu_type;
 use crate::entities::cmce::enums::cmce_pdu_type_dl::CmcePduTypeDl;
-use crate::entities::cmce::components::type3_fields::CmceType3Field;
 
 /// Representation of the D-TX GRANTED PDU (Clause 14.7.1.15).
 /// This PDU shall inform the MS concerned with a call that permission to transmit has been granted by the SwMI to a MS, and to inform that MS that it has been granted permission to transmit. This PDU shall also inform a MS that its request to transmit has been rejected or queued.
@@ -35,19 +35,19 @@ pub struct DTxGranted {
     /// Conditional 24 bits, See note 2, condition: transmitting_party_type_identifier == Some(2)
     pub transmitting_party_extension: Option<u64>,
     /// Type3, External subscriber number
-    pub external_subscriber_number: Option<CmceType3Field>,
+    pub external_subscriber_number: Option<Type3FieldGeneric>,
     /// Type3, Facility
-    pub facility: Option<CmceType3Field>,
+    pub facility: Option<Type3FieldGeneric>,
     /// Type3, DM-MS address
-    pub dm_ms_address: Option<CmceType3Field>,
+    pub dm_ms_address: Option<Type3FieldGeneric>,
     /// Type3, Proprietary
-    pub proprietary: Option<CmceType3Field>,
+    pub proprietary: Option<Type3FieldGeneric>,
 }
 
 #[allow(unreachable_code)] // TODO FIXME review, finalize and remove this
 impl DTxGranted {
     /// Parse from BitBuffer
-    pub fn from_bitbuf(buffer: &mut BitBuffer) -> Result<Self, PduParseError> {
+    pub fn from_bitbuf(buffer: &mut BitBuffer) -> Result<Self, PduParseErr> {
         
         let pdu_type = buffer.read_field(5, "pdu_type")?;
         expect_pdu_type!(pdu_type, CmcePduTypeDl::DTxGranted)?;
@@ -64,16 +64,12 @@ impl DTxGranted {
         let reserved = buffer.read_field(1, "reserved")? != 0;
 
         // obit designates presence of any further type2, type3 or type4 fields
-        let mut obit = typed_pdu_fields::delimiters::read_obit(buffer)?;
+        let mut obit = delimiters::read_obit(buffer)?;
 
         // Type2
-        let notification_indicator = if obit { 
-            typed_pdu_fields::type2::parse(buffer, 6, "notification_indicator")? as Option<u64>
-        } else { None };
+        let notification_indicator = typed::parse_type2_generic(obit, buffer, 6, "notification_indicator")?;
         // Type2
-        let transmitting_party_type_identifier = if obit { 
-            typed_pdu_fields::type2::parse(buffer, 2, "transmitting_party_type_identifier")? as Option<u64>
-        } else { None };
+        let transmitting_party_type_identifier = typed::parse_type2_generic(obit, buffer, 2, "transmitting_party_type_identifier")?;
         // Conditional
         let transmitting_party_address_ssi = if obit && transmitting_party_type_identifier == Some(1) || transmitting_party_type_identifier == Some(2) { 
             Some(buffer.read_field(24, "transmitting_party_address_ssi")?) 
@@ -85,30 +81,22 @@ impl DTxGranted {
 
 
         // Type3
-        let external_subscriber_number = if obit { 
-            CmceType3Field::parse(buffer, "external_subscriber_number")? as Option<CmceType3Field>
-        } else { None };
+        let external_subscriber_number = typed::parse_type3_generic(obit, buffer, CmceType3ElemId::ExtSubscriberNum)?;
         
         // Type3
-        let facility = if obit { 
-            CmceType3Field::parse(buffer, "facility")? as Option<CmceType3Field>
-        } else { None };
+        let facility = typed::parse_type3_generic(obit, buffer, CmceType3ElemId::Facility)?;
         
         // Type3
-        let dm_ms_address = if obit { 
-            CmceType3Field::parse(buffer, "dm_ms_address")? as Option<CmceType3Field>
-        } else { None };
+        let dm_ms_address = typed::parse_type3_generic(obit, buffer, CmceType3ElemId::DmMsAddr)?;
         
         // Type3
-        let proprietary = if obit { 
-            CmceType3Field::parse(buffer, "proprietary")? as Option<CmceType3Field>
-        } else { None };
+        let proprietary = typed::parse_type3_generic(obit, buffer, CmceType3ElemId::Proprietary)?;
         
 
         // Read trailing mbit (if not previously encountered)
         obit = if obit { buffer.read_field(1, "trailing_obit")? == 1 } else { obit };
         if obit {
-            return Err(PduParseError::InvalidObitValue);
+            return Err(PduParseErr::InvalidTrailingMbitValue);
         }
 
         Ok(DTxGranted { 
@@ -129,7 +117,7 @@ impl DTxGranted {
     }
 
     /// Serialize this PDU into the given BitBuffer.
-    pub fn to_bitbuf(&self, buffer: &mut BitBuffer) -> Result<(), PduParseError> {
+    pub fn to_bitbuf(&self, buffer: &mut BitBuffer) -> Result<(), PduParseErr> {
         // PDU Type
         buffer.write_bits(CmcePduTypeDl::DTxGranted.into_raw(), 5);
         // Type1
@@ -144,15 +132,15 @@ impl DTxGranted {
         buffer.write_bits(self.reserved as u64, 1);
 
         // Check if any optional field present and place o-bit
-        let obit_val = self.notification_indicator.is_some() || self.transmitting_party_type_identifier.is_some() || self.external_subscriber_number.is_some() || self.facility.is_some() || self.dm_ms_address.is_some() || self.proprietary.is_some() ;
-        typed_pdu_fields::delimiters::write_obit(buffer, obit_val as u8);
-        if !obit_val { return Ok(()); }
+        let obit = self.notification_indicator.is_some() || self.transmitting_party_type_identifier.is_some() || self.external_subscriber_number.is_some() || self.facility.is_some() || self.dm_ms_address.is_some() || self.proprietary.is_some() ;
+        delimiters::write_obit(buffer, obit as u8);
+        if !obit { return Ok(()); }
 
         // Type2
-        typed_pdu_fields::type2::write(buffer, self.notification_indicator, 6);
+        typed::write_type2_generic(obit, buffer, self.notification_indicator, 6);
 
         // Type2
-        typed_pdu_fields::type2::write(buffer, self.transmitting_party_type_identifier, 2);
+        typed::write_type2_generic(obit, buffer, self.transmitting_party_type_identifier, 2);
 
         // Conditional
         if let Some(ref value) = self.transmitting_party_address_ssi {
@@ -163,23 +151,20 @@ impl DTxGranted {
             buffer.write_bits(*value, 24);
         }
         // Type3
-        if let Some(ref value) = self.external_subscriber_number {
-            CmceType3Field::write(buffer, value.field_type, value.data, value.len);
-        }
+        typed::write_type3_generic(obit, buffer, &self.external_subscriber_number, CmceType3ElemId::ExtSubscriberNum)?;
+        
         // Type3
-        if let Some(ref value) = self.facility {
-            CmceType3Field::write(buffer, value.field_type, value.data, value.len);
-        }
+        
+        typed::write_type3_generic(obit, buffer, &self.facility, CmceType3ElemId::Facility)?;
+        
         // Type3
-        if let Some(ref value) = self.dm_ms_address {
-            CmceType3Field::write(buffer, value.field_type, value.data, value.len);
-        }
+        typed::write_type3_generic(obit, buffer, &self.dm_ms_address, CmceType3ElemId::DmMsAddr)?;
+        
         // Type3
-        if let Some(ref value) = self.proprietary {
-            CmceType3Field::write(buffer, value.field_type, value.data, value.len);
-        }
+        typed::write_type3_generic(obit, buffer, &self.proprietary, CmceType3ElemId::Proprietary)?;
+        
         // Write terminating m-bit
-        typed_pdu_fields::delimiters::write_mbit(buffer, 0);
+        delimiters::write_mbit(buffer, 0);
         Ok(())
     }
 }

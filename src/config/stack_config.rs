@@ -26,9 +26,11 @@ pub struct CfgPhyIo {
     /// Backend type: Soapysdr, File, or None
     pub backend: PhyBackend,
     
-    /// For File backend: path to input file
-    pub input_file: Option<String>,
-    
+    pub dl_tx_file: Option<String>,
+    pub ul_rx_file: Option<String>,
+    pub ul_input_file: Option<String>,
+    pub dl_input_file: Option<String>,
+
     /// For Soapysdr backend: SoapySDR configuration
     pub soapysdr: Option<CfgSoapySdr>,
 }
@@ -37,7 +39,10 @@ impl Default for CfgPhyIo {
     fn default() -> Self {
         Self {
             backend: PhyBackend::Undefined,
-            input_file: None,
+            dl_tx_file: None,
+            ul_rx_file: None,
+            ul_input_file: None,
+            dl_input_file: None,
             soapysdr: None,
         }
     }
@@ -181,6 +186,8 @@ fn default_main_carrier() -> u16 {
 pub struct StackConfig {
     #[serde(default = "default_stack_mode")]
     pub stack_mode: StackMode,
+    #[serde(default)]
+    pub debug_log: Option<String>,
 
     #[serde(default)]
     pub phy_io: CfgPhyIo,
@@ -201,6 +208,7 @@ impl StackConfig {
     pub fn new(mode: StackMode, mcc: u16, mnc: u16) -> Self {
         StackConfig {
             stack_mode: mode,
+            debug_log: None,
             phy_io: CfgPhyIo::default(),
             net: CfgNetInfo { mcc, mnc },
             cell: CfgCellInfo::default(),
@@ -253,8 +261,8 @@ impl StackConfig {
 
             let (dlfreq, ulfreq) = freq_info.get_freqs();
             
-            tracing::debug!("FreqInfo::from_components:       {:?}", freq_info);
-            tracing::debug!("Derived DL freq: {} Hz, UL freq: {} Hz", dlfreq, ulfreq);
+            println!("    {:?}", freq_info);
+            println!("    Derived DL freq: {} Hz, UL freq: {} Hz\n", dlfreq, ulfreq);
 
             if soapy_cfg.dl_freq as u32 != dlfreq {
                 return Err("PhyIo DlFrequency does not match computed FreqInfo");

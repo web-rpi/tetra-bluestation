@@ -1,3 +1,5 @@
-pub mod group_identity_uplink;
-pub mod group_identity_downlink;
 pub mod group_identity_attachment;
+pub mod group_identity_downlink;
+pub mod group_identity_location_accept;
+pub mod group_identity_location_demand;
+pub mod group_identity_uplink;

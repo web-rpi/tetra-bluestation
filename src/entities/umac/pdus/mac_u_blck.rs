@@ -1,7 +1,7 @@
 use core::fmt;
 
 use crate::{common::bitbuffer::BitBuffer};
-use crate::common::pdu_parse_error::PduParseError;
+use crate::common::pdu_parse_error::PduParseErr;
 
 /// Clause 21.4.2.5 MAC-U-BLCK
 #[derive(Debug, Clone)]
@@ -17,7 +17,7 @@ pub struct MacUBlck {
 }
 
 impl MacUBlck {
-    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseError> {
+    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseErr> {
         // required constant mac_pdu_type
         let mac_pdu_type = buf.read_field(2, "mac_pdu_type")?;
         assert!(mac_pdu_type == 3);

@@ -1,5 +1,5 @@
 use crate::{common::bitbuffer::BitBuffer, entities::umac::enums::{basic_slotgrant_cap_alloc::BasicSlotgrantCapAlloc, basic_slotgrant_granting_delay::BasicSlotgrantGrantingDelay}};
-use crate::common::pdu_parse_error::PduParseError;
+use crate::common::pdu_parse_error::PduParseErr;
 use core::fmt;
 
 /// 21.5.6 Basic slot granting
@@ -12,14 +12,14 @@ pub struct BasicSlotgrant {
 }
 
 impl BasicSlotgrant {
-    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseError> {
+    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseErr> {
         let cap_alloc_val = buf.read_field(4, "capacity_allocation")?;
         let capacity_allocation = BasicSlotgrantCapAlloc::try_from(cap_alloc_val)
-            .map_err(|_| PduParseError::InvalidValue { field: "capacity_allocation", value: cap_alloc_val })?;
+            .map_err(|_| PduParseErr::InvalidValue { field: "capacity_allocation", value: cap_alloc_val })?;
         
         let granting_delay_val = buf.read_field(4, "granting_delay")?;
         let granting_delay = BasicSlotgrantGrantingDelay::try_from(granting_delay_val)
-            .map_err(|_| PduParseError::InvalidValue { field: "granting_delay", value: granting_delay_val })?;
+            .map_err(|_| PduParseErr::InvalidValue { field: "granting_delay", value: granting_delay_val })?;
 
         Ok(BasicSlotgrant {
             capacity_allocation,

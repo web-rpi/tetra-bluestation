@@ -8,7 +8,7 @@ pub enum MmLocationUpdateAcceptType {
     PeriodicLocationUpdating = 2,
     ItsiAttach = 3,
     ServiceRestorationRoamingLocationUpdating = 4,
-    MigratingOrServiceRestorationMigrationLocationUpdating = 5,
+    MigratingOrServiceRestorationMigratingLocationUpdating = 5,
     DemandLocationUpdating = 6,
     DisabledMsUpdating = 7,
 }
@@ -22,7 +22,7 @@ impl std::convert::TryFrom<u64> for MmLocationUpdateAcceptType {
             2 => Ok(MmLocationUpdateAcceptType::PeriodicLocationUpdating),
             3 => Ok(MmLocationUpdateAcceptType::ItsiAttach),
             4 => Ok(MmLocationUpdateAcceptType::ServiceRestorationRoamingLocationUpdating),
-            5 => Ok(MmLocationUpdateAcceptType::MigratingOrServiceRestorationMigrationLocationUpdating),
+            5 => Ok(MmLocationUpdateAcceptType::MigratingOrServiceRestorationMigratingLocationUpdating),
             6 => Ok(MmLocationUpdateAcceptType::DemandLocationUpdating),
             7 => Ok(MmLocationUpdateAcceptType::DisabledMsUpdating),
             _ => Err(()),
@@ -39,7 +39,7 @@ impl MmLocationUpdateAcceptType {
             MmLocationUpdateAcceptType::PeriodicLocationUpdating => 2,
             MmLocationUpdateAcceptType::ItsiAttach => 3,
             MmLocationUpdateAcceptType::ServiceRestorationRoamingLocationUpdating => 4,
-            MmLocationUpdateAcceptType::MigratingOrServiceRestorationMigrationLocationUpdating => 5,
+            MmLocationUpdateAcceptType::MigratingOrServiceRestorationMigratingLocationUpdating => 5,
             MmLocationUpdateAcceptType::DemandLocationUpdating => 6,
             MmLocationUpdateAcceptType::DisabledMsUpdating => 7,
         }
@@ -58,7 +58,7 @@ impl core::fmt::Display for MmLocationUpdateAcceptType {
             MmLocationUpdateAcceptType::PeriodicLocationUpdating => write!(f, "PeriodicLocationUpdating"),
             MmLocationUpdateAcceptType::ItsiAttach => write!(f, "ItsiAttach"),
             MmLocationUpdateAcceptType::ServiceRestorationRoamingLocationUpdating => write!(f, "ServiceRestorationRoamingLocationUpdating"),
-            MmLocationUpdateAcceptType::MigratingOrServiceRestorationMigrationLocationUpdating => write!(f, "MigratingOrServiceRestorationMigrationLocationUpdating"),
+            MmLocationUpdateAcceptType::MigratingOrServiceRestorationMigratingLocationUpdating => write!(f, "MigratingOrServiceRestorationMigratingLocationUpdating"),
             MmLocationUpdateAcceptType::DemandLocationUpdating => write!(f, "DemandLocationUpdating"),
             MmLocationUpdateAcceptType::DisabledMsUpdating => write!(f, "DisabledMsUpdating"),
         }

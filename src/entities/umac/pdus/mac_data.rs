@@ -1,7 +1,7 @@
 use core::fmt;
 
 use crate::{common::{address::{SsiType, TetraAddress}, bitbuffer::BitBuffer}, entities::umac::enums::reservation_requirement::ReservationRequirement};
-use crate::common::pdu_parse_error::PduParseError;
+use crate::common::pdu_parse_error::PduParseErr;
 
 /// Clause 21.4.2.3 MAC-DATA
 #[derive(Debug, Clone)]
@@ -26,7 +26,7 @@ pub struct MacData {
 }
 
 impl MacData {
-    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseError> {
+    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseErr> {
         let mut s = MacData {
             fill_bits: false,
             encrypted: false,

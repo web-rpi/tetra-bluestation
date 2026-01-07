@@ -107,10 +107,10 @@ impl SdrSettings {
             rx_ant: Some("TX/RX".to_string()),
             tx_ant: Some("TX/RX".to_string()),
             rx_gain: vec![
-                ("PGA".to_string(), 50.0),  // 0 - 76 dB
+                ("PGA".to_string(), 50.0),
             ],
             tx_gain: vec![
-                ("PGA".to_string(), 35.0),  // 0 - 76 dB
+                ("PGA".to_string(), 35.0),
             ],
         }
     }

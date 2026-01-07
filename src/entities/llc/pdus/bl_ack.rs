@@ -1,6 +1,6 @@
 use core::fmt;
 
-use crate::{common::{bitbuffer::BitBuffer, pdu_parse_error::PduParseError}, expect_value, let_field};
+use crate::{common::{bitbuffer::BitBuffer, pdu_parse_error::PduParseErr}, expect_value, let_field};
 
 /// Clause 21.2.2.1 BL-ACK
 #[derive(Debug, Clone)]
@@ -14,7 +14,7 @@ pub struct BlAck {
 }
 
 impl BlAck {
-    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseError> {
+    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseErr> {
         
         // Parse 4-bit type, perform sanity checks
         let_field!(buf, llc_link_type, 1);

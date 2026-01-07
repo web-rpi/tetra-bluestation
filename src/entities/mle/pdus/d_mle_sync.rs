@@ -1,6 +1,6 @@
 use core::fmt;
 
-use crate::common::{bitbuffer::BitBuffer, pdu_parse_error::PduParseError};
+use crate::common::{bitbuffer::BitBuffer, pdu_parse_error::PduParseErr};
 
 /// Clause 18.4.2.1
 #[derive(Debug, Clone)]
@@ -18,7 +18,7 @@ pub struct DMleSync {
 }
 
 impl DMleSync {
-    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseError> {
+    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseErr> {
 
         let mcc = buf.read_field(10, "mcc")? as u16;
         let mnc = buf.read_field(14, "mnc")? as u16;

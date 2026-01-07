@@ -1,8 +1,8 @@
 use core::fmt;
 
-use crate::common::pdu_parse_error::PduParseError;
+use crate::common::pdu_parse_error::PduParseErr;
 use crate::common::bitbuffer::BitBuffer;
-use crate::common::typed_pdu_fields;
+use crate::common::typed_pdu_fields::*;
 use crate::expect_pdu_type;
 use crate::entities::mle::enums::mle_pdu_type_ul::MlePduTypeUl;
 
@@ -30,33 +30,27 @@ pub struct URestore {
 #[allow(unused_variables)]
 impl URestore {
     /// Parse from BitBuffer
-    pub fn from_bitbuf(buffer: &mut BitBuffer) -> Result<Self, PduParseError> {
+    pub fn from_bitbuf(buffer: &mut BitBuffer) -> Result<Self, PduParseErr> {
 
         let pdu_type = buffer.read_field(3, "pdu_type")?;
         expect_pdu_type!(pdu_type, MlePduTypeUl::URestore)?;
         
         // obit designates presence of any further type2, type3 or type4 fields
-        let obit = typed_pdu_fields::delimiters::read_obit(buffer)?;
+        let obit = delimiters::read_obit(buffer)?;
 
         // Type2
-        let mcc = if obit { 
-            typed_pdu_fields::type2::parse(buffer, 10, "mcc")? as Option<u64>
-        } else { None };
+        let mcc = typed::parse_type2_generic(obit, buffer, 10, "mcc")?;
         // Type2
-        let mnc = if obit { 
-            typed_pdu_fields::type2::parse(buffer, 14, "mnc")? as Option<u64>
-        } else { None };
+        let mnc = typed::parse_type2_generic(obit, buffer, 14, "mnc")?;
         // Type2
-        let la = if obit { 
-            typed_pdu_fields::type2::parse(buffer, 14, "la")? as Option<u64>
-        } else { None };
+        let la = typed::parse_type2_generic(obit, buffer, 14, "la")?;
         // Conditional
         unimplemented!(); let sdu = if obit { Some(0) } else { None };
 
         // Read trailing obit (if not previously encountered)
         obit = if obit { buffer.read_field(1, "trailing_obit")? == 1 } else { obit };
         if obit {
-            return Err(PduParseError::InvalidObitValue);
+            return Err(PduParseErr::InvalidTrailingMbitValue);
         }
 
         Ok(URestore { 
@@ -68,23 +62,23 @@ impl URestore {
     }
 
     /// Serialize this PDU into the given BitBuffer.
-    pub fn to_bitbuf(&self, buffer: &mut BitBuffer) -> Result<(), PduParseError> {
+    pub fn to_bitbuf(&self, buffer: &mut BitBuffer) -> Result<(), PduParseErr> {
         // PDU Type
         buffer.write_bits(MlePduTypeUl::URestore.into_raw(), 3);
 
         // Check if any optional field present and place o-bit
-        let obit_val = self.mcc.is_some() || self.mnc.is_some() || self.la.is_some() ;
-        typed_pdu_fields::delimiters::write_obit(buffer, obit_val as u8);
-        if !obit_val { return Ok(()); }
+        let obit = self.mcc.is_some() || self.mnc.is_some() || self.la.is_some() ;
+        delimiters::write_obit(buffer, obit as u8);
+        if !obit { return Ok(()); }
 
         // Type2
-        typed_pdu_fields::type2::write(buffer, self.mcc, 10);
+        typed::write_type2_generic(obit, buffer, self.mcc, 10);
 
         // Type2
-        typed_pdu_fields::type2::write(buffer, self.mnc, 14);
+        typed::write_type2_generic(obit, buffer, self.mnc, 14);
 
         // Type2
-        typed_pdu_fields::type2::write(buffer, self.la, 14);
+        typed::write_type2_generic(obit, buffer, self.la, 14);
 
         // Conditional
         if let Some(ref value) = self.sdu {
@@ -92,7 +86,7 @@ impl URestore {
             buffer.write_bits(*value, 999);
         }
         // Write terminating m-bit
-        typed_pdu_fields::delimiters::write_mbit(buffer, 0);
+        delimiters::write_mbit(buffer, 0);
         Ok(())
     }
 }

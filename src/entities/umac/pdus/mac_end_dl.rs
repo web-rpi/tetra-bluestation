@@ -1,7 +1,7 @@
 use core::fmt;
 
 use crate::{common::bitbuffer::BitBuffer, entities::umac::fields::{basic_slotgrant::BasicSlotgrant, channel_allocation::ChanAllocElement}};
-use crate::common::pdu_parse_error::PduParseError;
+use crate::common::pdu_parse_error::PduParseErr;
 
 /// Clause 21.4.3.3 MAC-END (downlink)
 #[derive(Debug, Clone)]
@@ -23,7 +23,7 @@ pub struct MacEndDl {
 }
 
 impl MacEndDl {
-    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseError> {
+    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseErr> {
         let mut s = MacEndDl {
             fill_bits: false,
             pos_of_grant: 0,

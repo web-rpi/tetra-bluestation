@@ -178,4 +178,32 @@ impl MessageRouter {
             self.ts = Some(ts.add_timeslots(1));
         }
     }
+
+
+    /// Runs the full stack either forever or for a specified number of ticks.
+    pub fn run_stack(&mut self, num_ticks: Option<usize>) {
+        
+        let mut ticks: usize = 0;
+
+        loop {
+            // Send tick_start event
+            self.tick_all();
+            
+            // Deliver messages until queue empty
+            while self.get_msgqueue_len() > 0{
+                self.deliver_all_messages();
+            }
+
+            // Send tick_end event and process final messages
+            self.tick_end();
+            
+            // Check if we should stop
+            ticks += 1;
+            if let Some(num_ticks) = num_ticks {
+                if ticks >= num_ticks {
+                    break;
+                }
+            }
+        }
+    }
 }

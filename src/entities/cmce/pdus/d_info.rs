@@ -1,11 +1,11 @@
 use core::fmt;
 
 use crate::common::bitbuffer::BitBuffer;
-use crate::common::pdu_parse_error::PduParseError;
-use crate::common::typed_pdu_fields;
+use crate::common::pdu_parse_error::PduParseErr;
+use crate::common::typed_pdu_fields::*;
+use crate::entities::cmce::enums::type3_elem_id::CmceType3ElemId;
 use crate::expect_pdu_type;
 use crate::entities::cmce::enums::cmce_pdu_type_dl::CmcePduTypeDl;
-use crate::entities::cmce::components::type3_fields::CmceType3Field;
 
 /// Representation of the D-INFO PDU (Clause 14.7.1.8).
 /// This PDU shall be the general information message to the MS.
@@ -44,19 +44,19 @@ pub struct DInfo {
     /// Type2, 6 bits, See note 3,
     pub poll_response_number: Option<u64>,
     /// Type3, DTMF
-    pub dtmf: Option<CmceType3Field>,
+    pub dtmf: Option<Type3FieldGeneric>,
     /// Type3, Facility
-    pub facility: Option<CmceType3Field>,
+    pub facility: Option<Type3FieldGeneric>,
     /// Type3, See note 3,
-    pub poll_response_addresses: Option<CmceType3Field>,
+    pub poll_response_addresses: Option<Type3FieldGeneric>,
     /// Type3, Proprietary
-    pub proprietary: Option<CmceType3Field>,
+    pub proprietary: Option<Type3FieldGeneric>,
 }
 
 #[allow(unreachable_code)] // TODO FIXME review, finalize and remove this
 impl DInfo {
     /// Parse from BitBuffer
-    pub fn from_bitbuf(buffer: &mut BitBuffer) -> Result<Self, PduParseError> {
+    pub fn from_bitbuf(buffer: &mut BitBuffer) -> Result<Self, PduParseErr> {
 
         let pdu_type = buffer.read_field(5, "pdu_type")?;
         expect_pdu_type!(pdu_type, CmcePduTypeDl::DInfo)?;
@@ -69,75 +69,47 @@ impl DInfo {
         let poll_request = buffer.read_field(1, "poll_request")? != 0;
 
         // obit designates presence of any further type2, type3 or type4 fields
-        let mut obit = typed_pdu_fields::delimiters::read_obit(buffer)?;
+        let mut obit = delimiters::read_obit(buffer)?;
 
         // Type2
-        let new_call_identifier = if obit { 
-            typed_pdu_fields::type2::parse(buffer, 14, "new_call_identifier")? as Option<u64>
-        } else { None };
+        let new_call_identifier = typed::parse_type2_generic(obit, buffer, 14, "new_call_identifier")?;
         // Type2
-        let call_time_out = if obit { 
-            typed_pdu_fields::type2::parse(buffer, 4, "call_time_out")? as Option<u64>
-        } else { None };
+        let call_time_out = typed::parse_type2_generic(obit, buffer, 4, "call_time_out")?;
         // Type2
-        let call_time_out_set_up_phase_t301_t302_ = if obit { 
-            typed_pdu_fields::type2::parse(buffer, 3, "call_time_out_set_up_phase_t301_t302_")? as Option<u64>
-        } else { None };
+        let call_time_out_set_up_phase_t301_t302_ = typed::parse_type2_generic(obit, buffer, 3, "call_time_out_set_up_phase_t301_t302_")?;
         // Type2
-        let call_ownership = if obit { 
-            typed_pdu_fields::type2::parse(buffer, 1, "call_ownership")? as Option<u64>
-        } else { None };
+        let call_ownership = typed::parse_type2_generic(obit, buffer, 1, "call_ownership")?;
         // Type2
-        let modify = if obit { 
-            typed_pdu_fields::type2::parse(buffer, 9, "modify")? as Option<u64>
-        } else { None };
+        let modify = typed::parse_type2_generic(obit, buffer, 9, "modify")?;
         // Type2
-        let call_status = if obit { 
-            typed_pdu_fields::type2::parse(buffer, 3, "call_status")? as Option<u64>
-        } else { None };
+        let call_status = typed::parse_type2_generic(obit, buffer, 3, "call_status")?;
         // Type2
-        let temporary_address = if obit { 
-            typed_pdu_fields::type2::parse(buffer, 24, "temporary_address")? as Option<u64>
-        } else { None };
+        let temporary_address = typed::parse_type2_generic(obit, buffer, 24, "temporary_address")?;
         // Type2
-        let notification_indicator = if obit { 
-            typed_pdu_fields::type2::parse(buffer, 6, "notification_indicator")? as Option<u64>
-        } else { None };
+        let notification_indicator = typed::parse_type2_generic(obit, buffer, 6, "notification_indicator")?;
         // Type2
-        let poll_response_percentage = if obit { 
-            typed_pdu_fields::type2::parse(buffer, 6, "poll_response_percentage")? as Option<u64>
-        } else { None };
+        let poll_response_percentage = typed::parse_type2_generic(obit, buffer, 6, "poll_response_percentage")?;
         // Type2
-        let poll_response_number = if obit { 
-            typed_pdu_fields::type2::parse(buffer, 6, "poll_response_number")? as Option<u64>
-        } else { None };
+        let poll_response_number = typed::parse_type2_generic(obit, buffer, 6, "poll_response_number")?;
 
 
         // Type3
-        let dtmf = if obit { 
-            CmceType3Field::parse(buffer, "dtmf")? as Option<CmceType3Field>
-        } else { None };
+        let dtmf = typed::parse_type3_generic(obit, buffer, CmceType3ElemId::Dtmf)?;
         
         // Type3
-        let facility = if obit { 
-            CmceType3Field::parse(buffer, "facility")? as Option<CmceType3Field>
-        } else { None };
+        let facility = typed::parse_type3_generic(obit, buffer, CmceType3ElemId::Facility)?;
         
         // Type3
-        let poll_response_addresses = if obit { 
-            CmceType3Field::parse(buffer, "poll_response_addresses")? as Option<CmceType3Field>
-        } else { None };
+        let poll_response_addresses = typed::parse_type3_generic(obit, buffer, CmceType3ElemId::PollResponseAddr)?;
         
         // Type3
-        let proprietary = if obit { 
-            CmceType3Field::parse(buffer, "proprietary")? as Option<CmceType3Field>
-        } else { None };
+        let proprietary = typed::parse_type3_generic(obit, buffer, CmceType3ElemId::Proprietary)?;
         
         
         // Read trailing mbit (if not previously encountered)
         obit = if obit { buffer.read_field(1, "trailing_obit")? == 1 } else { obit };
         if obit {
-            return Err(PduParseError::InvalidObitValue);
+            return Err(PduParseErr::InvalidTrailingMbitValue);
         }
 
         Ok(DInfo { 
@@ -162,7 +134,7 @@ impl DInfo {
     }
 
     /// Serialize this PDU into the given BitBuffer.
-    pub fn to_bitbuf(&self, buffer: &mut BitBuffer) -> Result<(), PduParseError> {
+    pub fn to_bitbuf(&self, buffer: &mut BitBuffer) -> Result<(), PduParseErr> {
         // PDU Type
         buffer.write_bits(CmcePduTypeDl::DInfo.into_raw(), 5);
         // Type1
@@ -173,58 +145,53 @@ impl DInfo {
         buffer.write_bits(self.poll_request as u64, 1);
 
         // Check if any optional field present and place o-bit
-        let obit_val = self.new_call_identifier.is_some() || self.call_time_out.is_some() || self.call_time_out_set_up_phase_t301_t302_.is_some() || self.call_ownership.is_some() || self.modify.is_some() || self.call_status.is_some() || self.temporary_address.is_some() || self.notification_indicator.is_some() || self.poll_response_percentage.is_some() || self.poll_response_number.is_some() || self.dtmf.is_some() || self.facility.is_some() || self.poll_response_addresses.is_some() || self.proprietary.is_some() ;
-        typed_pdu_fields::delimiters::write_obit(buffer, obit_val as u8);
-        if !obit_val { return Ok(()); }
+        let obit = self.new_call_identifier.is_some() || self.call_time_out.is_some() || self.call_time_out_set_up_phase_t301_t302_.is_some() || self.call_ownership.is_some() || self.modify.is_some() || self.call_status.is_some() || self.temporary_address.is_some() || self.notification_indicator.is_some() || self.poll_response_percentage.is_some() || self.poll_response_number.is_some() || self.dtmf.is_some() || self.facility.is_some() || self.poll_response_addresses.is_some() || self.proprietary.is_some() ;
+        delimiters::write_obit(buffer, obit as u8);
+        if !obit { return Ok(()); }
 
         // Type2
-        typed_pdu_fields::type2::write(buffer, self.new_call_identifier, 14);
+        typed::write_type2_generic(obit, buffer, self.new_call_identifier, 14);
 
         // Type2
-        typed_pdu_fields::type2::write(buffer, self.call_time_out, 4);
+        typed::write_type2_generic(obit, buffer, self.call_time_out, 4);
 
         // Type2
-        typed_pdu_fields::type2::write(buffer, self.call_time_out_set_up_phase_t301_t302_, 3);
+        typed::write_type2_generic(obit, buffer, self.call_time_out_set_up_phase_t301_t302_, 3);
 
         // Type2
-        typed_pdu_fields::type2::write(buffer, self.call_ownership, 1);
+        typed::write_type2_generic(obit, buffer, self.call_ownership, 1);
 
         // Type2
-        typed_pdu_fields::type2::write(buffer, self.modify, 9);
+        typed::write_type2_generic(obit, buffer, self.modify, 9);
 
         // Type2
-        typed_pdu_fields::type2::write(buffer, self.call_status, 3);
+        typed::write_type2_generic(obit, buffer, self.call_status, 3);
 
         // Type2
-        typed_pdu_fields::type2::write(buffer, self.temporary_address, 24);
+        typed::write_type2_generic(obit, buffer, self.temporary_address, 24);
 
         // Type2
-        typed_pdu_fields::type2::write(buffer, self.notification_indicator, 6);
+        typed::write_type2_generic(obit, buffer, self.notification_indicator, 6);
 
         // Type2
-        typed_pdu_fields::type2::write(buffer, self.poll_response_percentage, 6);
+        typed::write_type2_generic(obit, buffer, self.poll_response_percentage, 6);
 
         // Type2
-        typed_pdu_fields::type2::write(buffer, self.poll_response_number, 6);
+        typed::write_type2_generic(obit, buffer, self.poll_response_number, 6);
 
         // Type3
-        if let Some(ref value) = self.dtmf {
-            CmceType3Field::write(buffer, value.field_type, value.data, value.len);
-        }
+        typed::write_type3_generic(obit, buffer, &self.dtmf, CmceType3ElemId::Dtmf)?;
+        
         // Type3
-        if let Some(ref value) = self.facility {
-            CmceType3Field::write(buffer, value.field_type, value.data, value.len);
-        }
+        typed::write_type3_generic(obit, buffer, &self.facility, CmceType3ElemId::Facility)?;
+        
         // Type3
-        if let Some(ref value) = self.poll_response_addresses {
-            CmceType3Field::write(buffer, value.field_type, value.data, value.len);
-        }
+        typed::write_type3_generic(obit, buffer, &self.poll_response_addresses, CmceType3ElemId::PollResponseAddr)?;
         // Type3
-        if let Some(ref value) = self.proprietary {
-            CmceType3Field::write(buffer, value.field_type, value.data, value.len);
-        }
+        typed::write_type3_generic(obit, buffer, &self.proprietary, CmceType3ElemId::Proprietary)?;
+        
         // Write terminating m-bit
-        typed_pdu_fields::delimiters::write_mbit(buffer, 0);
+        delimiters::write_mbit(buffer, 0);
         Ok(())
     }
 }

@@ -1,7 +1,7 @@
 use core::fmt;
 
 use crate::{common::bitbuffer::BitBuffer, entities::umac::enums::reservation_requirement::ReservationRequirement};
-use crate::common::pdu_parse_error::PduParseError;
+use crate::common::pdu_parse_error::PduParseErr;
 
 /// Clause 21.4.2.2 MAC-END-HU
 #[derive(Debug, Clone)]
@@ -17,7 +17,7 @@ pub struct MacEndHu {
 }
 
 impl MacEndHu {
-    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseError> {
+    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseErr> {
         // required constant mac_pdu_type
         let mac_pdu_type = buf.read_field(1, "mac_pdu_type")?;
         assert!(mac_pdu_type == 1);
@@ -30,7 +30,7 @@ impl MacEndHu {
         } else {
             let val = buf.read_field(4, "reservation_req")?;
             let res_req = ReservationRequirement::try_from(val)
-                .map_err(|_| PduParseError::InvalidValue { field: "reservation_req", value: val })?;
+                .map_err(|_| PduParseErr::InvalidValue { field: "reservation_req", value: val })?;
             (None, Some(res_req))
         };
 

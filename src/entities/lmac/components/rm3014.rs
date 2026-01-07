@@ -106,8 +106,6 @@ pub fn tetra_rm3014_decode_limited_ecc(codeword: u32) -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-
     
     #[test]
     fn test_encode_decode_no_error() {

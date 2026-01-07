@@ -1,8 +1,8 @@
 use core::fmt;
 
-use crate::common::pdu_parse_error::PduParseError;
+use crate::common::pdu_parse_error::PduParseErr;
 use crate::common::bitbuffer::BitBuffer;
-use crate::common::typed_pdu_fields;
+use crate::common::typed_pdu_fields::*;
 use crate::expect_pdu_type;
 use crate::entities::mm::enums::mm_pdu_type_dl::MmPduTypeDl;
 
@@ -32,7 +32,7 @@ pub struct DLocationUpdateCommand {
 #[allow(unused_variables)]
 impl DLocationUpdateCommand {
     /// Parse from BitBuffer
-    pub fn from_bitbuf(buffer: &mut BitBuffer) -> Result<Self, PduParseError> {
+    pub fn from_bitbuf(buffer: &mut BitBuffer) -> Result<Self, PduParseErr> {
 
         let pdu_type = buffer.read_field(4, "pdu_type")?;
         expect_pdu_type!(pdu_type, MmPduTypeDl::DLocationUpdateCommand)?;
@@ -45,12 +45,10 @@ impl DLocationUpdateCommand {
         unimplemented!(); let ciphering_parameters = if true { Some(0) } else { None };
 
         // obit designates presence of any further type2, type3 or type4 fields
-        let mut obit = typed_pdu_fields::delimiters::read_obit(buffer)?;
+        let mut obit = delimiters::read_obit(buffer)?;
 
         // Type2
-        let address_extension = if obit { 
-            typed_pdu_fields::type2::parse(buffer, 24, "address_extension")? as Option<u64>
-        } else { None };
+        let address_extension = typed::parse_type2_generic(obit, buffer, 24, "address_extension")?;
         // Conditional
         unimplemented!(); let cell_type_control = if obit { Some(0) } else { None };
         // Conditional
@@ -59,7 +57,7 @@ impl DLocationUpdateCommand {
         // Read trailing obit (if not previously encountered)
         obit = if obit { buffer.read_field(1, "trailing_obit")? == 1 } else { obit };
         if obit {
-            return Err(PduParseError::InvalidObitValue);
+            return Err(PduParseErr::InvalidTrailingMbitValue);
         }
 
         Ok(DLocationUpdateCommand { 
@@ -73,7 +71,7 @@ impl DLocationUpdateCommand {
     }
 
     /// Serialize this PDU into the given BitBuffer.
-    pub fn to_bitbuf(&self, buffer: &mut BitBuffer) -> Result<(), PduParseError> {
+    pub fn to_bitbuf(&self, buffer: &mut BitBuffer) -> Result<(), PduParseErr> {
         // PDU Type
         buffer.write_bits(MmPduTypeDl::DLocationUpdateCommand.into_raw(), 4);
         // Type1
@@ -86,12 +84,12 @@ impl DLocationUpdateCommand {
         }
 
         // Check if any optional field present and place o-bit
-        let obit_val = self.address_extension.is_some() ;
-        typed_pdu_fields::delimiters::write_obit(buffer, obit_val as u8);
-        if !obit_val { return Ok(()); }
+        let obit = self.address_extension.is_some() ;
+        delimiters::write_obit(buffer, obit as u8);
+        if !obit { return Ok(()); }
 
         // Type2
-        typed_pdu_fields::type2::write(buffer, self.address_extension, 24);
+        typed::write_type2_generic(obit, buffer, self.address_extension, 24);
 
         // Conditional
         if let Some(ref value) = self.cell_type_control {
@@ -102,7 +100,7 @@ impl DLocationUpdateCommand {
             buffer.write_bits(*value, 3);
         }
         // Write terminating m-bit
-        typed_pdu_fields::delimiters::write_mbit(buffer, 0);
+        delimiters::write_mbit(buffer, 0);
         Ok(())
     }
 }

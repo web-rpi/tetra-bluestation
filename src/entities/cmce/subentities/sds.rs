@@ -26,7 +26,7 @@ impl SdsSubentity {
             }
         };
         
-        unimplemented_log!("rx_sds_data not implemented");
+        unimplemented_log!("rx_sds_data");
     }
 
     /// Poor man's rx_prim, as this is a subcomponent and not governed by the MessageRouter

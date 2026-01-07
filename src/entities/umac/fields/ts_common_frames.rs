@@ -1,7 +1,7 @@
 use core::fmt::Display;
 
 use crate::{assert_warn, common::bitbuffer::BitBuffer};
-use crate::common::pdu_parse_error::PduParseError;
+use crate::common::pdu_parse_error::PduParseErr;
 
 /// Clause 21.5.5 TS_COMMON_FRAMES
 #[derive(Debug, Clone)]
@@ -49,7 +49,7 @@ pub struct TsCommonFrames {
 }
 
 impl TsCommonFrames {
-    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseError> {
+    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseErr> {
         let f1 = buf.read_field(1, "f1")? != 0;
         let f2 = buf.read_field(1, "f2")? != 0;
         let f3 = buf.read_field(1, "f3")? != 0;

@@ -1,7 +1,7 @@
 use core::fmt;
 
 use crate::{assert_warn, common::bitbuffer::BitBuffer};
-use crate::common::pdu_parse_error::PduParseError;
+use crate::common::pdu_parse_error::PduParseErr;
 
 /// Clause 21.4.4.1 SYSINFO Table 21.67 Extended Services and Part 7 Clause A.8.77 Security Information Element
 #[derive(Debug, Clone)]
@@ -35,7 +35,7 @@ pub struct SysinfoExtendedServices {
 }
 
 impl SysinfoExtendedServices {
-    pub fn from_bitbuf(buf: &mut BitBuffer, aie_enabled: bool) -> Result<Self, PduParseError> {
+    pub fn from_bitbuf(buf: &mut BitBuffer, aie_enabled: bool) -> Result<Self, PduParseErr> {
         // Read 3 bits from Security Information Element
         let auth_required = buf.read_field(1, "auth_required")? != 0;
         let (class1_supported, class2_supported, class3_supported) = if aie_enabled { 

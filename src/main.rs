@@ -1,7 +1,4 @@
-// #![allow(unused_imports)]
-// #![allow(unused_variables)]
 #![allow(dead_code)]
-// #![allow(unused_mut)]
 
 #[cfg(test)]
 mod testing;
@@ -19,7 +16,7 @@ use config::stack_config::*;
 use config::toml_config;
 use crate::entities::cmce::cmce_bs::CmceBs;
 use crate::entities::mle::mle_bs_ms::Mle;
-use crate::entities::phy::components::rxtxdev_soapysdr::RxTxDevSoapySdr;
+use crate::entities::phy::components::soapy_dev::RxTxDevSoapySdr;
 use crate::entities::sndcp::sndcp_bs::Sndcp;
 use crate::entities::lmac::lmac_bs::LmacBs;
 use crate::entities::mm::mm_bs::MmBs;
@@ -27,40 +24,12 @@ use crate::entities::phy::phy_bs::PhyBs;
 use crate::entities::llc::llc_bs_ms::Llc;
 use crate::entities::umac::umac_bs::UmacBs;
 
-
-/// Runs the full stack either forever or for a specified number of ticks.
-fn run_stack(router: &mut MessageRouter, num_ticks: Option<usize>) {
-    
-    let mut ticks: usize = 0;
-
-    loop {
-        // Send tick_start event
-        router.tick_all();
-        
-        // Deliver messages until queue empty
-        while router.get_msgqueue_len() > 0{
-            router.deliver_all_messages();
-        }
-
-        // Send tick_end event and process final messages
-        router.tick_end();
-        
-        // Check if we should stop
-        ticks += 1;
-        if let Some(num_ticks) = num_ticks {
-            if ticks >= num_ticks {
-                break;
-            }
-        }
-    }
-}
-
 /// Load configuration file
 fn load_config_from_toml(cfg_path: &str) -> SharedConfig {
     match toml_config::from_file(cfg_path) {
         Ok(c) => c,
         Err(e) => {
-            tracing::error!("Failed to load configuration from {}: {}", cfg_path, e);
+            println!("Failed to load configuration from {}: {}", cfg_path, e);
             std::process::exit(1);
         }
     }
@@ -125,12 +94,18 @@ struct Args {
 
 fn main() {
 
+    eprintln!("░▀█▀░█▀▀░▀█▀░█▀▄░█▀█░░░░░█▀▄░█░░░█░█░█▀▀░█▀▀░▀█▀░█▀█░▀█▀░▀█▀░█▀█░█▀█");
+    eprintln!("░░█░░█▀▀░░█░░█▀▄░█▀█░▄▄▄░█▀▄░█░░░█░█░█▀▀░▀▀█░░█░░█▀█░░█░░░█░░█░█░█░█");
+    eprintln!("░░▀░░▀▀▀░░▀░░▀░▀░▀░▀░░░░░▀▀░░▀▀▀░▀▀▀░▀▀▀░▀▀▀░░▀░░▀░▀░░▀░░▀▀▀░▀▀▀░▀░▀\n");
+    eprintln!("    Wouter Bokslag / Midnight Blue");
+    eprintln!(" -> https://github.com/MidnightBlueLabs/tetra-bluestation");
+    eprintln!(" -> https://midnightblue.nl\n");
+
     let args = Args::parse();
-
-    setup_logging_default();
     let mut cfg = load_config_from_toml(&args.config);
+    let _log_guard = setup_logging_default(cfg.config().debug_log.clone());
+    
     let mut router = match cfg.config().stack_mode {
-
         StackMode::Mon => {
             unimplemented!("Monitor mode is not implemented");
         },
@@ -142,5 +117,5 @@ fn main() {
         }
     };
 
-    run_stack(&mut router, None);
+    router.run_stack(None);
 }

@@ -1,7 +1,8 @@
 use core::fmt;
 
+use crate::{expect_failed, expect_value};
 use crate::{common::bitbuffer::BitBuffer, entities::umac::enums::reservation_requirement::ReservationRequirement};
-use crate::common::pdu_parse_error::PduParseError;
+use crate::common::pdu_parse_error::PduParseErr;
 
 /// Clause 21.4.2.5 MAC-END (uplink)
 #[derive(Debug, Clone)]
@@ -16,7 +17,7 @@ pub struct MacEndUl {
 }
 
 impl MacEndUl {
-    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseError> {
+    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseErr> {
         // required constant mac_pdu_type
         let mac_pdu_type = buf.read_field(2, "mac_pdu_type")?;
         assert!(mac_pdu_type == 1);
@@ -25,12 +26,20 @@ impl MacEndUl {
         assert!(pdu_subtype == 1);
         let fill_bits = buf.read_field(1, "fill_bits")? != 0;
         let length_ind_cap_req = buf.read_field(6, "length_ind_cap_req")?;
-        let (length_ind, reservation_req) = if length_ind_cap_req < 0b110000 {
+        let (length_ind, reservation_req) = if length_ind_cap_req == 0 {
+            // Reserved value
+            return expect_failed!(length_ind_cap_req, "length_ind_cap_req reserved value");
+        } else if length_ind_cap_req < 0b101111 {
+            // Length indication
             (Some(length_ind_cap_req as u8), None)
-        } else {
+        } else if length_ind_cap_req < 0x110000{
+            // reserved value, return error
+            return expect_failed!(length_ind_cap_req, "length_ind_cap_req reserved value");
+        } else { 
+            // 0x110000 or higher, cap req
             let val = length_ind_cap_req & 0b001111;
             let res_req = ReservationRequirement::try_from(val)
-                .map_err(|_| PduParseError::InvalidValue { field: "reservation_req", value: val })?;
+                .map_err(|_| PduParseErr::InvalidValue { field: "reservation_req", value: val })?;
             (None, Some(res_req))
         };
 
@@ -41,22 +50,24 @@ impl MacEndUl {
         })
     }
 
-    pub fn to_bitbuf(&self, buf: &mut BitBuffer) {
+    pub fn to_bitbuf(&self, buf: &mut BitBuffer) -> Result<(), PduParseErr> {
         
         // write required constant mac_pdu_type
         buf.write_bits(1, 2);
         // write required constant pdu_subtype
         buf.write_bits(1, 1);
         buf.write_bits(self.fill_bits as u8 as u64, 1);
-        assert!(self.length_ind.is_some() ^ self.reservation_req.is_some());
+        expect_value!(self.length_ind.is_some() ^ self.reservation_req.is_some(), true, "length_ind xor reservation_req must be present")?;
         if let Some(length_ind) = self.length_ind {
-            assert!(length_ind < 0b110000);
+            expect_value!(length_ind > 0, true, "length_ind zero")?;
+            expect_value!(length_ind < 0b101110, true, "length_ind over 0b101110")?;
             buf.write_bits(length_ind as u64, 6);
         } else if let Some(reservation_req) = self.reservation_req {
             // assert!(reservation_req < 0b001111);
             buf.write_bits(0b11, 2);
             buf.write_bits(reservation_req as u64, 4);
         }
+        Ok(())
     }
 
 }

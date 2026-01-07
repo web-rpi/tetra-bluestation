@@ -1,7 +1,7 @@
 use std::panic;
 use core::fmt;
 
-use crate::common::pdu_parse_error::PduParseError;
+use crate::common::pdu_parse_error::PduParseErr;
 use crate::entities::umac::enums::access_assign_ul_usage::AccessAssignUlUsage;
 use crate::common::bitbuffer::BitBuffer;
 
@@ -53,7 +53,7 @@ impl Default for AccessAssignFr18 {
 
 impl AccessAssignFr18 {
 
-    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseError> {
+    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseErr> {
 
         let mut s = AccessAssignFr18 {
             _header: buf.read_field(2, "_header")? as u8,
@@ -101,7 +101,7 @@ impl AccessAssignFr18 {
 
                 // UL usage counts as CommonAndAssigned, but with traffic marker
                 let ul_usage = AccessAssignUlUsage::from_usage_marker(field1);
-                s.ul_usage = ul_usage.ok_or(PduParseError::InvalidValue { field: "ul_usage", value: field1 as u64 })?;
+                s.ul_usage = ul_usage.ok_or(PduParseErr::InvalidValue { field: "ul_usage", value: field1 as u64 })?;
                 assert!(ul_usage.unwrap().is_traffic());
 
                 s.f2_af = Some(AccessField {

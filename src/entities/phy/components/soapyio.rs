@@ -144,12 +144,13 @@ impl SoapyIo {
                     }
                     
                     // Override gain settings
-                    sdr_settings.rx_gain = vec![
-                        Self::get_gain_or_default("PGA", cfg.rx_gain_pga, &sdr_settings),
-                    ];
-                    sdr_settings.tx_gain = vec![
-                        Self::get_gain_or_default("PGA", cfg.tx_gain_pga, &sdr_settings),
-                    ];
+                    let mut rx_gains = Vec::new();
+                    rx_gains.push(Self::get_gain_or_default("PGA", cfg.rx_gain_pga, &sdr_settings));
+                    sdr_settings.rx_gain = rx_gains;
+
+                    let mut tx_gains = Vec::new();
+                    tx_gains.push(Self::get_gain_or_default("PGA", cfg.tx_gain_pga, &sdr_settings));
+                    sdr_settings.tx_gain = tx_gains;
                 }
             }
             "lime" => {

@@ -105,19 +105,23 @@ impl BsChannelScheduler {
 
     /// Finds a grant opportunity for uplink transmission
     /// If num_slots is 1, is_halfslot may specifiy whether only a half slot is needed
-    /// Returns (opportunities_to_skip, Vec<timestams_of_granted_slots>)
+    /// Returns (opportunities_to_skip, Vec<timestamps_of_granted_slots>)
     /// Returns None if no suitable opportunity is found in the schedule
     pub fn ul_find_grant_opportunity(&self, ts: u8, num_slots: usize, is_halfslot: bool) -> Option<(usize, Vec<TdmaTime>)> {
 
         let mut grant_timeslots = Vec::with_capacity(num_slots);
         let mut opportunities_skipped = 0;
 
-        assert!(!is_halfslot || num_slots == 1);
+        assert!(!is_halfslot || num_slots == 1, "is_halfslot set for num_slots > 1");
         
         for dist in 1..MACSCHED_NUM_FRAMES {
-            let candidate_t = self.cur_ts.add_timeslots(dist as i32 * 4);
-
-            tracing::debug!("ul_find_grant_opportunity: considering candidate ts {}, have {:?}", candidate_t, grant_timeslots);
+            // let candidate_t = self.cur_ts.add_timeslots(dist as i32 * 4);
+            // Base off of internal perception of time, convert to UL time
+            // Below may crash someday, but I'd want to investigate that situation
+            let candidate_t = self.cur_ts.add_timeslots(dist as i32 * 4 - 2);
+            assert!(candidate_t.t == ts, "ul_find_grant_opportunity: candidate_t.ts {} does not match requested ts {}. Please report this to developer. ", candidate_t.t, ts);
+            
+            tracing::debug!("ul_find_grant_opportunity: considering candidate ul_ts {}, have {:?}", candidate_t, grant_timeslots);
 
             if self.cur_ts.is_mandatory_clch() {
                 // Not an opportunity; skip
@@ -496,7 +500,7 @@ impl BsChannelScheduler {
                             pdu.to_bitbuf(&mut buf);
                             buf.copy_bits(&mut sdu, sdu_bits);
                             write_fill_bits(&mut buf, Some(num_fill_bits));
-                            tracing::debug!("finalize_ts_for_tick: inserting {:?} sdu {}", pdu, sdu.dump_bin());
+                            tracing::debug!("<- finalized {:?} sdu {}", pdu, sdu.dump_bin());
                         },
                         
                         DlSchedElem::FragBuf(_) => {
@@ -793,7 +797,7 @@ mod tests {
 
     pub fn get_testing_slotter() -> BsChannelScheduler {
 
-        setup_logging_default();
+        let _ = setup_logging_default(None);
 
         // TODO FIXME make all parameters configurable
         let ext_services = SysinfoExtendedServices {

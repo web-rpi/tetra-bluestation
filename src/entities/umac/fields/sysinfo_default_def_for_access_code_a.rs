@@ -1,7 +1,7 @@
 use core::fmt::Display;
 
 use crate::common::bitbuffer::BitBuffer;
-use crate::common::pdu_parse_error::PduParseError;
+use crate::common::pdu_parse_error::PduParseErr;
 
 /// Clause 21.4.4.1 SYSINFO -> Default definition for access code A information element contents
 #[derive(Debug, Clone)]
@@ -21,7 +21,7 @@ pub struct SysinfoDefaultDefForAccessCodeA {
 }
 
 impl SysinfoDefaultDefForAccessCodeA {
-    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseError> {
+    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseErr> {
         let imm = buf.read_field(4, "imm")? as u8;
         let wt = buf.read_field(4, "wt")? as u8;
         let nu = buf.read_field(4, "nu")? as u8;

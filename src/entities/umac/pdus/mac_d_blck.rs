@@ -1,7 +1,7 @@
 use core::fmt;
 
 use crate::{common::bitbuffer::BitBuffer, entities::umac::fields::basic_slotgrant::BasicSlotgrant};
-use crate::common::pdu_parse_error::PduParseError;
+use crate::common::pdu_parse_error::PduParseErr;
 
 /// Clause 21.4.3.4 MAC-D-BLCK
 #[derive(Debug, Clone)]
@@ -21,7 +21,7 @@ pub struct MacDBlck {
 }
 
 impl MacDBlck {
-    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseError> {
+    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseErr> {
         let mut s = MacDBlck {
             fill_bits: false,
             encryption_mode: 0,

@@ -4,7 +4,7 @@
 use core::fmt;
 
 use crate::common::bitbuffer::BitBuffer;
-use crate::common::pdu_parse_error::PduParseError;
+use crate::common::pdu_parse_error::PduParseErr;
 
 #[derive(Debug, Clone)]
 pub struct ChanAllocElement {
@@ -72,7 +72,7 @@ pub struct ChanAllocElement {
 
 
 impl ChanAllocElement {
-    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseError> {
+    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseErr> {
         let mut s = ChanAllocElement {
             alloc_type: 0,
             ts_assigned: 0,

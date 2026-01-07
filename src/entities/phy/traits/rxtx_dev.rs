@@ -31,10 +31,10 @@ pub struct TxSlotBits<'a> {
     pub time: TdmaTime,
     /// Burst to transmit in full slot
     pub slot: Option<&'a [u8]>,
-    /// Burst to transmit in subslot 1
-    pub subslot1: Option<&'a [u8]>,
-    /// Burst to transmit in subslot 2
-    pub subslot2: Option<&'a [u8]>,
+    // /// Burst to transmit in subslot 1
+    // pub subslot1: Option<&'a [u8]>,
+    // /// Burst to transmit in subslot 2
+    // pub subslot2: Option<&'a [u8]>,
 }
 
 /// Trait for RX/TX devices that work with full slots.

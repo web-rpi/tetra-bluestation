@@ -1,6 +1,6 @@
 [package]
 name = "tetra-bluestation"
-version = "0.2.3"
+version = "0.2.4"
 edition = "2024"
 
 [dependencies]
@@ -13,9 +13,11 @@ rustfft = "6.4.0"
 soapysdr = "0.4.4"
 rand = "0.9.2"
 clap = { version = "4.5.53", features = ["derive"] }
-tracing-subscriber = { version = "0.3", features = ["env-filter","time"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "time"] }
+crossbeam-channel = "0.5"
 
 # By default, we disable the lowest tracing events for performance
 # Remove the release_max_level feature to enable all tracing debug levels in release builds
-tracing = { version = "0.1.41", features = ["std", "release_max_level_debug"] }
+tracing = { version = "0.1.41", features = ["std"] }
+tracing-appender = "0.2.4"
 # tracing = { version = "0.1.41", features = ["std"] }

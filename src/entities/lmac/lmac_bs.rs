@@ -83,7 +83,7 @@ impl LmacBs {
     }
 
     /// Yields logical channel for given block. Based on Clause 9.5.1
-    fn determine_logical_channel_ul(&self, blk: &TpUnitdataInd, _t: &TdmaTime) -> LogicalChannel {
+    fn determine_logical_channel_ul(&self, blk: &TpUnitdataInd, _t: &TdmaTime, burst_is_traffic: bool, block2_stolen: bool) -> LogicalChannel {
         
         match blk.burst_type {
             BurstType::CUB => {
@@ -95,19 +95,35 @@ impl LmacBs {
                 match blk.train_type {
                     TrainingSequence::NormalTrainSeq1 => {
                         // TCH or SCH/F
-                        assert!(blk.block_num == PhyBlockNum::Both, "NUB with NormalTrainSeq1 must have two blocks, got {:?}", blk.block_num);
-                        LogicalChannel::SchF
+                        assert!(blk.block_num == PhyBlockNum::Both, "NUB with NormalTrainSeq1 must have one large block, got {:?}", blk.block_num);
+                        if burst_is_traffic {
+                            // Only support TCH/S speech channel for now
+                            LogicalChannel::TchS
+                        } else {
+                            // Full slot signalling
+                            LogicalChannel::SchF
+                        }
                     }
                     TrainingSequence::NormalTrainSeq2 => {
                         // Clause 9.4.4.3.2: 
                         // STCH+TCH
                         // STCH+STCH (if blk1 has resource stating 2nd block stolen)
+                        if !burst_is_traffic {
+                            tracing::debug!("NUB with NormalTrainSeq2 but non-traffic burst");
+                            // tracing::warn!("NUB with NormalTrainSeq2 but non-traffic burst, unexpected");
+                        }
+
                         if blk.block_num == PhyBlockNum::Block1 {
                             LogicalChannel::Stch
                         } else if blk.block_num == PhyBlockNum::Block2 {
-                            // TODO FIXME signal from Umac if 2nd half stolen
-                            tracing::warn!("Can't decide if TCH or STCH, did we have a 2ND_HALF_STOLEN in blk1?");
-                            return LogicalChannel::Stch;
+                            
+                            if !burst_is_traffic || block2_stolen {
+                                // TODO FIXME remove !burst_is_traffic guard, temporary fix only
+                                tracing::debug!("NUB blk2 in STCH?");
+                                LogicalChannel::Stch
+                            } else {
+                                LogicalChannel::TchS
+                            }
                         } else {
                             panic!("NUB with NormalTrainSeq2 must have two blocks, got {:?}", blk.block_num);
                         }
@@ -127,26 +143,23 @@ impl LmacBs {
 
         assert!(lchan.is_control_channel(), "rx_blk_cp: lchan {:?} is not a signalling channel", lchan);
 
-        // tracing::debug!("scramb: {}", self.scrambling_code);
         let (type1bits, crc_pass) = 
                 errorcontrol::decode_cp(lchan, blk, Some(self.scrambling_code));
         let type1bits = type1bits.unwrap(); // Guaranteed since scramb code set
 
-        
-        tracing::debug!("rx_blk_cp {:?} {} type1 {:?}", lchan, 
-                if lchan != LogicalChannel::Aach { if crc_pass { "CRC: OK" } else { "CRC: WRONG" } } else {""}, type1bits);
+        if tracing::enabled!(tracing::Level::DEBUG) {
+            tracing::debug!("rx_blk_cp {:?} CRC: {} type1 {:?}", lchan, if crc_pass { "ok" } else { "WRONG" }, type1bits);
+        } else {
+            tracing::info!("rx_blk_cp {:?} CRC: {}", lchan, if crc_pass { "ok" } else { "WRONG" });
+        }
 
-        // if crc_pass {
-        //     tracing::info!("WE GOT ONE CRC OK");
-        //     exit(0);
-        // }
         // TODO FIXME, for now, we're not passing broken CRC msgs up to Lmac
         // If we see purpose, we may pass it up in the future
         if !crc_pass {
             return;
         }
 
-        // // Pass block to the upper mac
+        // Pass block to the upper mac
         let m = SapMsg {
             sap: Sap::TmvSap,
             src: TetraEntity::Lmac,
@@ -169,7 +182,7 @@ impl LmacBs {
         tracing::debug!("rx_tp_prim: msg {:?}", message);
 
         let SapMsgInner::TpUnitdataInd(prim) = message.msg else { panic!() };
-        let lchan = self.determine_logical_channel_ul(&prim, &self.time);
+        let lchan = self.determine_logical_channel_ul(&prim, &self.time, false, false);
 
         match lchan {
             LogicalChannel::Clch => {}

@@ -1,5 +1,5 @@
 use core::fmt;
-use crate::common::pdu_parse_error::PduParseError;
+use crate::common::pdu_parse_error::PduParseErr;
 
 use crate::common::bitbuffer::BitBuffer;
 use crate::entities::umac::enums::sysinfo_opt_field_flag::SysinfoOptFieldFlag;
@@ -49,7 +49,7 @@ pub struct MacSysinfo {
 /// Parses SYSINFO pdu
 /// Updates pos to start of TM-SDU
 impl MacSysinfo {
-    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseError> {
+    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseErr> {
         let mut s = MacSysinfo {
             main_carrier: 0,
             freq_band: 0,

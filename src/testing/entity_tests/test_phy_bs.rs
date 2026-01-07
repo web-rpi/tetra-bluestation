@@ -10,7 +10,7 @@ mod tests {
     use crate::entities::lmac::lmac_bs::LmacBs;
     use crate::entities::mm::mm_bs::MmBs;
     use crate::entities::llc::llc_bs_ms::Llc;
-    use crate::entities::phy::components::rxtxdev_soapysdr::RxTxDevSoapySdr;
+    use crate::entities::phy::components::soapy_dev::RxTxDevSoapySdr;
     use crate::entities::phy::phy_bs::PhyBs;
     use crate::entities::umac::umac_bs::UmacBs;
     use crate::testing::component_test::{ComponentTest, default_test_config};
@@ -64,7 +64,7 @@ mod tests {
     #[ignore] // Requires LimeSDR hardware
     fn test_limesdr_bs() {
         // Setup logging and make default stack configuration
-        debug::setup_logging_default();
+        debug::setup_logging_default(None);
         let mut raw_config  = default_test_config(StackMode::Bs);
 
         // Update default config to suit our needs
@@ -83,13 +83,13 @@ mod tests {
         });
         raw_config.phy_io.soapysdr = Some(soapy_cfg);
 
-        let mut test = ComponentTest::new(raw_config);
+        let mut test = ComponentTest::new(raw_config, None);
 
         // Create PHY and insert it into the message router
         let rxdev = RxTxDevSoapySdr::new(&test.config);
         let phy = PhyBs::new(test.config.clone(), rxdev);
         test.register_entity(phy);
-        test.run_ticks(None);
+        test.run_stack(None);
     }
 
     #[test]
@@ -97,7 +97,7 @@ mod tests {
     fn test_usrp_bs() {
 
         // Setup logging and make default stack configuration
-        debug::setup_logging_default();
+        debug::setup_logging_default(None);
         let mut raw_config  = default_test_config(StackMode::Bs);
 
         // Update default config to suit our needs
@@ -113,12 +113,12 @@ mod tests {
         });
         raw_config.phy_io.soapysdr = Some(soapy_cfg);
 
-        let mut test = ComponentTest::new(raw_config);
+        let mut test = ComponentTest::new(raw_config, None);
 
         // Create PHY and insert it into the message router
         let rxdev = RxTxDevSoapySdr::new(&test.config);
         let phy = PhyBs::new(test.config.clone(), rxdev);
         test.register_entity(phy);
-        test.run_ticks(None);
+        test.run_stack(None);
     }
 }

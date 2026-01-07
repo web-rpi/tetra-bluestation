@@ -1,7 +1,7 @@
 use core::fmt;
 
 use crate::common::bitbuffer::BitBuffer;
-use crate::common::pdu_parse_error::PduParseError;
+use crate::common::pdu_parse_error::PduParseErr;
 
 /// Clause 21.4.4.3 ACCESS-DEFINE
 #[derive(Debug, Clone)]
@@ -31,7 +31,7 @@ pub struct AccessDefine {
 }
 
 impl AccessDefine {
-    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseError> {
+    pub fn from_bitbuf(buf: &mut BitBuffer) -> Result<Self, PduParseErr> {
         let mut s = AccessDefine {
             common_or_assigned_control: false,
             access_code: 0,

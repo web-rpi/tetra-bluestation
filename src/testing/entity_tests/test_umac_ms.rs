@@ -15,9 +15,9 @@ mod tests {
     #[test]
     /// A test containing a single Lmac frame, containing a MAC-RESOURCE with no SDU, and a NULL pdu
     fn test_umac_ms() {
-        debug::setup_logging_default();
+        debug::setup_logging_verbose();
         let config = default_test_config(StackMode::Ms);
-        let mut test = ComponentTest::new(config);
+        let mut test = ComponentTest::new(config, None);
 
         let components = vec![
             TetraEntity::Umac,
@@ -55,9 +55,9 @@ mod tests {
     /// The message ultimately contains an SDS message, which is reconstructed in the CMCE.
     /// Also tests the in-between LLC and MLE.  
     fn test_umac_frag() {
-        debug::setup_logging_default();
+        debug::setup_logging_verbose();
         let config = default_test_config(StackMode::Ms);
-        let mut test = ComponentTest::new(config);
+        let mut test = ComponentTest::new(config, None);
 
         let components = vec![
             TetraEntity::Umac,
@@ -116,9 +116,9 @@ mod tests {
     #[test]
     /// A test containing a SYSINFO frame, parsed by UMAC and MLE
     fn test_sysinfo() {
-        debug::setup_logging_default();
+        debug::setup_logging_verbose();
         let config = default_test_config(StackMode::Ms);
-        let mut test = ComponentTest::new(config);
+        let mut test = ComponentTest::new(config, None);
 
         let components = vec![
             TetraEntity::Umac,
@@ -160,9 +160,9 @@ mod tests {
     #[test]
     /// A test containing a SYNC frame, parsed by UMAC and MLE
     fn test_sync() {
-        debug::setup_logging_default();
+        debug::setup_logging_verbose();
         let config = default_test_config(StackMode::Ms);
-        let mut test = ComponentTest::new(config);
+        let mut test = ComponentTest::new(config, None);
 
         let components = vec![
             TetraEntity::Umac,
@@ -205,7 +205,7 @@ mod tests {
     fn test_resource() {
         debug::setup_logging_verbose();
         let config = default_test_config(StackMode::Ms);
-        let mut test = ComponentTest::new(config);
+        let mut test = ComponentTest::new(config, None);
 
         let components = vec![
             TetraEntity::Umac,

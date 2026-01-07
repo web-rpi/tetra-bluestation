@@ -36,7 +36,7 @@ use crate::entities::umac::pdus::mac_u_blck::MacUBlck;
 use crate::entities::umac::pdus::mac_u_signal::MacUSignal;
 use crate::entities::umac::subcomp::event_labels::EventLabelStore;
 use crate::entities::umac::subcomp::fillbits::get_num_fill_bits;
-use crate::entities::umac::subcomp::bs_channel_scheduler::{BsChannelScheduler, PrecomputedUmacPdus};
+use crate::entities::umac::subcomp::bs_sched::{BsChannelScheduler, PrecomputedUmacPdus};
 use crate::{assert_warn, unimplemented_log};
 
 use super::subcomp::defrag::MacDefrag;
@@ -59,7 +59,9 @@ pub struct UmacBs {
     defrag: MacDefrag,
     event_label_store: EventLabelStore,
     
-    channel_scheduler: BsChannelScheduler,
+    /// Contains UL/DL scheduling logic
+    /// Access to this field is used only by testing code
+    pub channel_scheduler: BsChannelScheduler,
     // ulrx_scheduler: UlScheduler,
 }
 
@@ -265,14 +267,11 @@ impl UmacBs {
                         MacPduType::MacFragMacEnd => {
                             // Also need third bit; designates mac-frag versus mac-end
                             if bits & 1 == 0 {
-                                self.rx_ul_mac_frag(queue, &mut message);
+                                self.rx_mac_frag_ul(queue, &mut message);
                             } else {
-                                self.rx_ul_mac_end(queue, &mut message);
+                                self.rx_mac_end_ul(queue, &mut message);
                             }
                         }
-                        // MacPduType::Broadcast => {
-                        //     self.rx_broadcast(queue, &mut message);
-                        // }
                         MacPduType::SuppMacUSignal => {
                             // STCH determines which subtype is relevant
                             if lchan == LogicalChannel::Stch {
@@ -286,7 +285,9 @@ impl UmacBs {
                                 }
                             }
                         }
-                        _ => panic!()
+                        _ => {
+                            tracing::warn!("unknown pdu type: {}", pdu_type);
+                        }
                     }
                 }
                 LogicalChannel::SchHu => {
@@ -300,7 +301,7 @@ impl UmacBs {
                 }
 
                 _ => {
-                    panic!()
+                    tracing::warn!("unknown logical channel: {:?}", lchan);
                 }
             }
             
@@ -509,17 +510,13 @@ impl UmacBs {
         if pdu.encrypted {
             unimplemented_log!("rx_mac_data: Encryption mode > 0");
             return;
-            // TODO:
-            // Check if key available
-            // generate keystream
-            // apply keystream to data
-            // re-decode chanalloc            
-            // continue
         } 
 
         // Handle reservation if present
         let ul_time = message.dltime.add_timeslots(-2);
         if let Some(res_req) = &pdu.reservation_req {
+
+            tracing::error!("rx_mac_data: time {:?} ul {:?}", message.dltime, ul_time);
             let grant = self.channel_scheduler.ul_process_cap_req(ul_time.t, pdu.addr, res_req);
             if let Some(grant) = grant {
                 // Schedule grant
@@ -532,9 +529,7 @@ impl UmacBs {
         
         tracing::debug!("rx_mac_data: {}", prim.pdu.dump_bin_full(true));
         if is_frag_start {
-
             // Fragmentation start, add to defragmenter
-            let ul_time = message.dltime.add_timeslots(-2);
             self.defrag.insert_first(&mut prim.pdu, ul_time, pdu.addr, None);
 
         } else if second_half_stolen {
@@ -716,10 +711,10 @@ impl UmacBs {
             }
         };
         
-        tracing::debug!("rx_mac_access: {}", prim.pdu.dump_bin_full(true));
+        // tracing::debug!("rx_mac_access: {}", prim.pdu.dump_bin_full(true));
         if pdu.is_frag_start() {
+
             // Fragmentation start, add to defragmenter
-            let ul_time = message.dltime.add_timeslots(-2);
             self.defrag.insert_first(&mut prim.pdu, ul_time, addr, None);
 
         } else {
@@ -780,9 +775,9 @@ impl UmacBs {
         prim.pdu.set_raw_start(prim.pdu.get_raw_pos());
     }
 
-    fn rx_ul_mac_frag(&mut self, _queue: &mut MessageQueue, message: &mut SapMsg) {
+    fn rx_mac_frag_ul(&mut self, _queue: &mut MessageQueue, message: &mut SapMsg) {
 
-        tracing::trace!("rx_ul_mac_frag");
+        tracing::trace!("rx_mac_frag_ul");
         let SapMsgInner::TmvUnitdataInd(prim) = &mut message.msg else {panic!()};
         assert!(prim.pdu.get_pos() == 0); // We should be at the start of the MAC PDU
         
@@ -809,13 +804,12 @@ impl UmacBs {
         };
         pdu_len_bits -= num_fill_bits;
         prim.pdu.set_raw_end(prim.pdu.get_raw_start() + pdu_len_bits);
-        tracing::debug!("rx_ul_mac_frag: pdu_len_bits: {} fill_bits: {}", pdu_len_bits, num_fill_bits);
+        tracing::debug!("rx_mac_frag_ul: pdu_len_bits: {} fill_bits: {}", pdu_len_bits, num_fill_bits);
 
         // Decrypt if needed
         let ul_time = message.dltime.add_timeslots(-2);
-        if let Some(_aie_info) = self.defrag.buffers[ul_time.t as usize - 1].aie_info {
-            // TODO FIXME implement
-            unimplemented_log!("rx_ul_mac_frag: Encryption not supported");
+        if let Some(_aie_info) = self.defrag.get_aie_info(ul_time) {
+            unimplemented_log!("rx_mac_frag_ul: Encryption not supported");
             return;
         }
 
@@ -823,13 +817,13 @@ impl UmacBs {
         self.defrag.insert_next(&mut prim.pdu, ul_time);
     }
 
-    fn rx_ul_mac_end(&mut self, _queue: &mut MessageQueue, message: &mut SapMsg) {
-        tracing::trace!("rx_ul_mac_end");
+    fn rx_mac_end_ul(&mut self, queue: &mut MessageQueue, message: &mut SapMsg) {
+        tracing::trace!("rx_mac_end_ul");
         let SapMsgInner::TmvUnitdataInd(prim) = &mut message.msg else {panic!()};
         assert!(prim.pdu.get_pos() == 0); // We should be at the start of the MAC PDU
 
         // Parse header and optional ChanAlloc
-        let _pdu = match MacEndUl::from_bitbuf(&mut prim.pdu) {
+        let pdu = match MacEndUl::from_bitbuf(&mut prim.pdu) {
             Ok(pdu) => {
                 tracing::debug!("<- {:?}", pdu);
                 pdu
@@ -840,65 +834,85 @@ impl UmacBs {
             }
         };
 
-        // Compute len
-        unimplemented!("rx_ul_mac_end");
+        // Will have either length_ind or reservation_req, never none or both
+        let mut pdu_len_bits = if let Some(length_ind) = pdu.length_ind {
+            length_ind as usize * 8
+        } else  {
+            // No length ind, we have capacity request. Fill slot.
+            prim.pdu.get_len()
+        };
 
-        // assert!(pdu.length_ind != 0); // Reserved
-        // let mut pdu_len_bits = pdu.length_ind as usize * 8;
+        // Strip fill bits if any
+        let num_fill_bits = {
+            if pdu.fill_bits {
+                get_num_fill_bits(&prim.pdu, pdu_len_bits, false)
+            } else {
+                0
+            }
+        };
+        pdu_len_bits -= num_fill_bits;
+        let orig_end = prim.pdu.get_raw_end();
+        prim.pdu.set_raw_end(prim.pdu.get_raw_start() + pdu_len_bits);
+        tracing::trace!("rx_mac_end_ul: pdu: {} sdu: {} fb: {}: {}", pdu_len_bits, prim.pdu.get_len_remaining(), num_fill_bits, prim.pdu.dump_bin_full(true));
 
-        // // Strip fill bits. Maintain original end to allow for later parsing of a second mac block
-        // let num_fill_bits= {
-        //     if pdu.fill_bits {
-        //         get_num_fill_bits(&prim.pdu, pdu_len_bits)
-        //     } else {
-        //         0
-        //     }
-        // };
-        // pdu_len_bits -= num_fill_bits;
-        // let orig_end = prim.pdu.get_raw_end();
-        // prim.pdu.set_raw_end(prim.pdu.get_raw_start() + pdu_len_bits);
-        // tracing::debug!("rx_ul_mac_end: pdu_len_bits: {} fill_bits: {}", pdu_len_bits, num_fill_bits);
+        // Decrypt if needed
+        let ul_time = message.dltime.add_timeslots(-2);
+        if let Some(_aie_info) = self.defrag.get_aie_info(ul_time) {
+            unimplemented!("rx_mac_end_ul: Encryption not supported");
+        }
 
-        // // Decrypt if needed
-        // let ul_time = message.t_submit.add_timeslots(-2);
-        // if let Some(aie_info) = self.defrag.buffers[ul_time.t as usize - 1].aie_info {
-        //     // TODO FIXME implement
-        //     unimplemented!("rx_ul_mac_end: Encryption not supported");
-        //     // TODO FIXME Also re-parse chanalloc
-        // }
+        // Insert into defragmenter
+        self.defrag.insert_last(&mut prim.pdu, ul_time);
 
-        // // Insert into defragmenter
-        // let ul_time = message.t_submit.add_timeslots(-2);
-        // self.defrag.insert_last(&mut prim.pdu, ul_time);
+        // Fetch finalized block
+        let defragbuf = self.defrag.take_defragged_buf(ul_time);
+        let Some(defragbuf) = defragbuf else {
+            tracing::warn!("rx_mac_end_ul: could not obtain defragged buf");
+            return;
+        };
 
-        // // Fetch finalized block and pass to LLC
-        // let defragbuf = self.defrag.take_defragged_buf(ul_time).unwrap();
-    
-        // // Pass directly to LLC
-        // tracing::debug!("rx_ul_mac_end: sdu: {:?}", defragbuf.buffer.dump_bin());
+        // Handle reservation if present
+        if let Some(res_req) = &pdu.reservation_req {
+            let grant = self.channel_scheduler.ul_process_cap_req(ul_time.t, defragbuf.addr, res_req);
+            if let Some(grant) = grant {
+                // Schedule grant
+                self.channel_scheduler.dl_enqueue_grant(ul_time.t, defragbuf.addr, grant);
+            } else {
+                tracing::warn!("rx_mac_end_ul: No grant for reservation request {:?}", res_req);
+            }
+        };
 
-        // let m = SapMsg {
-        //     sap: Sap::TmaSap,
-        //     src: TetraComponent::Umac,
-        //     dest: TetraComponent::Llc,
-        //     t_submit: message.t_submit,
+        // Pass completed block to LLC
+        tracing::debug!("rx_mac_end_ul: sdu: {:?}", defragbuf.buffer.dump_bin());
 
-        //     msg: SapMsgInner::TmaUnitdataInd(
-        //         TmaUnitdataInd {
-        //             pdu: Some(defragbuf.buffer),
-        //             main_address: defragbuf.addr,
-        //             scrambling_code: prim.scrambling_code,
-        //             endpoint_id: 0, // TODO FIXME
-        //             new_endpoint_id: None, // TODO FIXME
-        //             css_endpoint_id: None, // TODO FIXME
-        //             air_interface_encryption: 0, // TODO FIXME implement
-        //             chan_change_response_req: false,
-        //             chan_change_handle: None,
-        //             chan_info: None
-        //         }
-        //     )
-        // };
-        // queue.push_back(m);
+        let m = SapMsg {
+            sap: Sap::TmaSap,
+            src: TetraEntity::Umac,
+            dest: TetraEntity::Llc,
+            dltime: message.dltime,
+
+            msg: SapMsgInner::TmaUnitdataInd(
+                TmaUnitdataInd {
+                    pdu: Some(defragbuf.buffer),
+                    main_address: defragbuf.addr,
+                    scrambling_code: prim.scrambling_code,
+                    endpoint_id: 0, // TODO FIXME
+                    new_endpoint_id: None, // TODO FIXME
+                    css_endpoint_id: None, // TODO FIXME
+                    air_interface_encryption: 0, // TODO FIXME implement
+                    chan_change_response_req: false,
+                    chan_change_handle: None,
+                    chan_info: None
+                }
+            )
+        };
+        queue.push_back(m);
+
+        // Since this is not a null pdu, more MAC PDUs may follow
+        // This allows parent function to continue parsing
+        prim.pdu.set_raw_end(orig_end);
+        prim.pdu.set_raw_pos(prim.pdu.get_raw_start() + pdu_len_bits + num_fill_bits);
+        prim.pdu.set_raw_start(prim.pdu.get_raw_pos());
     }
 
     fn rx_mac_end_hu(&mut self, queue: &mut MessageQueue, message: &mut SapMsg) {
@@ -924,11 +938,19 @@ impl UmacBs {
                 assert_warn!(false, "rx_mac_end_hu: PDU has length ind 0");
                 return;
             }
-            length_ind as usize * 8
+            let len = length_ind as usize * 8;
+            if len > prim.pdu.get_len() {
+                tracing::warn!("rx_mac_end_hu: length_ind > buf len, using buf len");
+                prim.pdu.get_len()
+            } else {
+                len
+            }
         } else  {
             // No length ind, we have capacity request. Fill slot.
             prim.pdu.get_len()
         };
+        // Max length is buf length
+        
 
         // Strip fill bits if any
         let num_fill_bits = {
@@ -939,20 +961,19 @@ impl UmacBs {
             }
         };
         pdu_len_bits -= num_fill_bits;
-        let _orig_end = prim.pdu.get_raw_end();
+        let orig_end = prim.pdu.get_raw_end();
         prim.pdu.set_raw_end(prim.pdu.get_raw_start() + pdu_len_bits);
+        // tracing::error!("rx_mac_end_hu: orig_end {} raw_start {} num_fill_bits {} curr_pos {}", orig_end, prim.pdu.get_raw_start(), num_fill_bits, prim.pdu.get_raw_pos());
+        // set to trace
         tracing::trace!("rx_mac_end_hu: pdu: {} sdu: {} fb: {}: {}", pdu_len_bits, prim.pdu.get_len_remaining(), num_fill_bits, prim.pdu.dump_bin_full(true));
 
         // Decrypt if needed
         let ul_time = message.dltime.add_timeslots(-2);
-        if let Some(_aie_info) = self.defrag.buffers[ul_time.t as usize - 1].aie_info {
-            // TODO FIXME implement
+        if let Some(_aie_info) = self.defrag.get_aie_info(ul_time) {
             unimplemented!("rx_mac_end_hu: Encryption not supported");
-            // TODO FIXME Also re-parse chanalloc
         }
 
         // Insert into defragmenter
-        let ul_time = message.dltime.add_timeslots(-2);
         self.defrag.insert_last(&mut prim.pdu, ul_time);
 
         // Fetch finalized block
@@ -972,7 +993,6 @@ impl UmacBs {
                 tracing::warn!("rx_mac_end_hu: No grant for reservation request {:?}", res_req);
             }
         };
-
 
         // Pass completed block to LLC
         tracing::debug!("rx_mac_end_hu: sdu: {:?}", defragbuf.buffer.dump_bin());
@@ -999,6 +1019,13 @@ impl UmacBs {
             )
         };
         queue.push_back(m);
+
+        // Since this is not a null pdu, more MAC PDUs may follow
+        // This allows parent function to continue parsing
+        // tracing::trace!("rx_mac_end_hu: orig_end {} raw_start {} num_fill_bits {} curr_pos {}", orig_end, prim.pdu.get_raw_start(), num_fill_bits, prim.pdu.get_raw_pos());
+        prim.pdu.set_raw_end(orig_end);
+        prim.pdu.set_raw_pos(prim.pdu.get_raw_start() + pdu_len_bits + num_fill_bits);
+        prim.pdu.set_raw_start(prim.pdu.get_raw_pos());
     }
 
     

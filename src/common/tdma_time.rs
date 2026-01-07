@@ -14,8 +14,9 @@ pub struct TdmaTime {
 }
 
 impl Default for TdmaTime {
+    /// Returns the default TdmaTime of 0/1/1/1
     fn default() -> TdmaTime {
-        TdmaTime { t: 1, f: 1, m: 1, h: 0 }
+        TdmaTime { h: 0, m: 1, f: 1, t: 1 }
     }
 }
 
