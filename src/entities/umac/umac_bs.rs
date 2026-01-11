@@ -68,30 +68,24 @@ pub struct UmacBs {
 impl UmacBs {
     pub fn new(config: SharedConfig) -> Self {
 
-        let mut ret = Self { 
+        let scrambling_code = config.config().scrambling_code();
+        let precomps = Self::generate_precomps(&config);
+        Self { 
             self_component: TetraEntity::Umac,
             config,
             endpoint_id: 0, 
             defrag: MacDefrag::new(),
             event_label_store: EventLabelStore::new(),
-            channel_scheduler: BsChannelScheduler::new(),
-            // ulrx_scheduler: UlScheduler::new(),
-        };
-
-        if ret.config.config().stack_mode == StackMode::Bs {
-            // Precompute various frequently transmitted messages
-            ret.initialize_scheduler();
-        } 
-
-        ret
+            channel_scheduler: BsChannelScheduler::new(scrambling_code, precomps),
+        }
     }
 
     /// Precomputes SYNC, SYSINFO messages (and subfield variants) for faster TX msg building
     /// Precomputed PDUs are passed to scheduler
     /// Needs to be re-invoked if any network parameter changes
-    pub fn initialize_scheduler(&mut self) {
+    pub fn generate_precomps(config: &SharedConfig) -> PrecomputedUmacPdus{
 
-        let c = self.config.config();
+        let c = config.config();
 
         // TODO FIXME make more/all parameters configurable
         let ext_services = SysinfoExtendedServices {
@@ -129,7 +123,7 @@ impl UmacBs {
             ms_txpwr_max_cell: 5,
             rxlev_access_min: 3,
             access_parameter: 7,
-            radio_dl_timeout: 15,
+            radio_dl_timeout: 3,
             cck_id: None,
             hyperframe_number: Some(0),
             option_field: SysinfoOptFieldFlag::DefaultDefForAccCodeA,
@@ -193,16 +187,13 @@ impl UmacBs {
             late_entry_supported: true,
         };
 
-        let precomps = PrecomputedUmacPdus {
+        PrecomputedUmacPdus {
             mac_sysinfo1: sysinfo1,
             mac_sysinfo2: sysinfo2,
             mle_sysinfo: mle_sysinfo_pdu,        
             mac_sync: mac_sync_pdu,
             mle_sync: mle_sync_pdu,
-        }; 
-        
-        self.channel_scheduler.set_scrambling_code(c.scrambling_code());
-        self.channel_scheduler.set_precomputed_msgs(precomps);
+        }
     }
 
     fn rx_tmv_prim(&mut self, queue: &mut MessageQueue, message: SapMsg) {

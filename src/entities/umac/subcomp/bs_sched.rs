@@ -30,8 +30,8 @@ pub struct TimeslotSchedule {
 pub struct BsChannelScheduler {
     
     pub cur_ts: TdmaTime,
-    scrambling_code: Option<u32>,
-    precomps: Option<PrecomputedUmacPdus>,
+    scrambling_code: u32,
+    precomps: PrecomputedUmacPdus,
     pub dltx_queues: [Vec<DlSchedElem>; 4],
     sched: [[TimeslotSchedule; MACSCHED_NUM_FRAMES]; 4],
 }
@@ -64,23 +64,26 @@ const EMPTY_SCHED_CHANNEL: [TimeslotSchedule; MACSCHED_NUM_FRAMES] = [EMPTY_SCHE
 const EMPTY_SCHED: [[TimeslotSchedule; MACSCHED_NUM_FRAMES]; 4] = [EMPTY_SCHED_CHANNEL; 4];
 
 impl BsChannelScheduler {
-    pub fn new() -> Self {
+    pub fn new(scrambling_code: u32, precomps: PrecomputedUmacPdus) -> Self {
+        
         BsChannelScheduler {
             cur_ts: TdmaTime {t: 0, f: 0, m: 0, h: 0}, // Intentionally invalid, updated in tick function
-            scrambling_code: None,
-            precomps: None,
+            scrambling_code: scrambling_code,
+            precomps,
             dltx_queues: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
             sched: EMPTY_SCHED,
         }
     }
 
-    pub fn set_scrambling_code(&mut self, scrambling_code: u32) {
-        self.scrambling_code = Some(scrambling_code);
-    }
+    // pub fn set_scrambling_code(&mut self, scrambling_code: u32) {
+    //     self.scrambling_code = scrambling_code;
+    //     unimplemented!("need to refresh some msgs possibly");
+    // }
 
-    pub fn set_precomputed_msgs(&mut self, precomps: PrecomputedUmacPdus) {
-        self.precomps = Some(precomps);
-    }
+    // pub fn set_precomputed_msgs(&mut self, precomps: PrecomputedUmacPdus) {
+    //     self.precomps = precomps;
+    //     unimplemented!("need to refresh some msgs possibly");
+    // }
 
     /// Fully wipe the schedule
     pub fn purge_schedule(&mut self) {
@@ -292,14 +295,10 @@ impl BsChannelScheduler {
                     tracing::trace!("try_add_null_pdus: closing blk with Null PDU");
 
                     // We have room for a Null PDU
-                    let mut pdu = MacResource {
-                        fill_bits: false,
-                        length_ind: 2, // Null PDU is 16 bits
-                        addr: None,
-                        ..Default::default()
-                    };
-                    let _ = pdu.update_len_and_fill_ind(0);
-                    pdu.to_bitbuf(&mut b.mac_block);
+                    let mut null_pdu = MacResource::null_pdu();
+                    null_pdu.length_ind = 2; // Null PDU is 16 bits
+                    let _ = null_pdu.update_len_and_fill_ind(0);
+                    null_pdu.to_bitbuf(&mut b.mac_block);
 
                     // TODO FIXME: it's possibly the best idea to still add fill bits trailing this null pdu.
                     // Check real-world captures. 
@@ -432,9 +431,15 @@ impl BsChannelScheduler {
     /// If none; return first in-progress fragmented message. 
     /// If none; return first to-be-transmitted resource. 
     /// If none, return None.
-    pub fn dl_take_prioritized_sched_item(&mut self, ts: u8) -> Option<DlSchedElem> {
+    pub fn dl_take_prioritized_sched_item(&mut self, ts: TdmaTime) -> Option<DlSchedElem> {
+
+        if ts.f == 18 {
+            // No resources on frame 18
+            return None;
+        }
+
         // Map 1-based ts to 0-based index, bail on 0 or out of range.
-        let slot = ts as usize - 1;
+        let slot = ts.t as usize - 1;
         let q = self.dltx_queues.get_mut(slot).unwrap();
 
         // Return grants first
@@ -470,19 +475,21 @@ impl BsChannelScheduler {
 
         // We finalize a FUTURE slot: cur_ts plus some number of timeslots
         let ts = self.cur_ts.add_timeslots(MACSCHED_TX_AHEAD as i32);
+        self.precomps.mac_sync.time = ts;
+        self.precomps.mac_sysinfo1.hyperframe_number = Some(ts.h);
+        self.precomps.mac_sysinfo2.hyperframe_number = Some(ts.h);
         
         // TODO FIXME allocate only if we have something to put in it
-        let mut buf = BitBuffer::new(SCH_F_CAP);
+        let mut buf_opt = BitBuffer::new(SCH_F_CAP);
 
         // Integrate all grants and random access acks into resources (either existing or new)
         self.dl_integrate_sched_elems_for_timeslot(ts);
 
         while !self.dltx_queues[ts.t as usize - 1].is_empty() {
-            let opt = self.dl_take_prioritized_sched_item(ts.t);
+            let opt = self.dl_take_prioritized_sched_item(ts);
 
-            if !(opt.is_none() || ts.t == 1) {
-                tracing::error!("got violating element {:?}", opt);
-                panic!();
+            if ts.t != 1 && opt.is_some() {
+                unimplemented!("not yet scheduling stuff on ts > 1")
             }
             
             match opt {
@@ -497,9 +504,9 @@ impl BsChannelScheduler {
                             let sdu_bits = sdu.get_len();
                             let num_fill_bits = pdu.update_len_and_fill_ind(sdu_bits);
 
-                            pdu.to_bitbuf(&mut buf);
-                            buf.copy_bits(&mut sdu, sdu_bits);
-                            write_fill_bits(&mut buf, Some(num_fill_bits));
+                            pdu.to_bitbuf(&mut buf_opt);
+                            buf_opt.copy_bits(&mut sdu, sdu_bits);
+                            write_fill_bits(&mut buf_opt, Some(num_fill_bits));
                             tracing::debug!("<- finalized {:?} sdu {}", pdu, sdu.dump_bin());
                         },
                         
@@ -518,7 +525,7 @@ impl BsChannelScheduler {
         }
         
         // Check if any signalling message was put
-        let mut elem = if buf.get_pos() == 0 {
+        let mut elem = if buf_opt.get_pos() == 0 {
             // Put default SYNC/SYSINFO frame
             TmvUnitdataReqSlot {
                 ts,
@@ -531,8 +538,8 @@ impl BsChannelScheduler {
                 ts,
                 blk1: Some(TmvUnitdataReq {
                     logical_channel: LogicalChannel::SchF,
-                    mac_block: buf,
-                    scrambling_code: self.scrambling_code.unwrap(),
+                    mac_block: buf_opt,
+                    scrambling_code: self.scrambling_code,
                 }),
                 blk2: None, // MAY be populated later
                 bbk: None, // WILL be populated later
@@ -543,130 +550,17 @@ impl BsChannelScheduler {
         // assert!(self.dl_take_schedule_item(&ts).is_none(), "finalize_ts_for_tick: dl_take_schedule_item should return None, but got {:?}", elem);
 
 
-        // By default, UL is CommonOnly. 
-        // If we encounter a subslot grant, we set this to CommonAndAssigned
-        // If the full slot is granted (or two subslot grants are encountered), we set this to AssignedOnly
-        // let ul_usage = self.ul_get_usage(ts);
-        
-        if elem.bbk.is_none() {
+        // A few sanity checks
+        if let Some(ref blk1) = elem.blk1 {
+            assert!(ts.f != 18, "frame 18 shouldn't have blk1 set");
+            if blk1.logical_channel == LogicalChannel::Stch || blk1.logical_channel.is_traffic() {
+                unimplemented!("stch or traffic");
+            }
+        }
 
-            // let index = self.ts_to_sched_index(&ts);
-            // let sched = &self.sched[ts.t as usize - 1][index];
-
-            // Generate BBK block
-            let mut aach_bb = BitBuffer::new(14);
-            if ts.f != 18 {
-                
-                let mut aach = AccessAssign::default();
-                
-                if elem.blk1.as_ref().is_some_and(|b| 
-                        b.logical_channel == LogicalChannel::Stch ||
-                        b.logical_channel.is_traffic()) {
-                    // aach.dl_usage = Some(AccessAssignDlUsage::Traffic());
-                    unimplemented!();
-                }
-
-                match ts.t {
-                    1 => {
-
-                        // STRATEGY 1, always send UL CommonAndAssigned
-                        // This seems to cause problems with Motorola, which may refuse random access on anything but CommonOnly
-                        // Yields something like: 01000010000100
-                        // aach.dl_usage = AccessAssignDlUsage::CommonControl;
-                        // aach.ul_usage = AccessAssignUlUsage::CommonAndAssigned;
-                        // // f1 gets populated with DL Unallocated marker
-                        // aach.f2_af = Some(AccessField{
-                        //     access_code: 0,
-                        //     base_frame_len: 4,
-                        // });
-                        // END LEGACY STRATEGY 1
-
-                        // STRATEGY 2, always send UL CommonOnly | AssignedOnly
-                        // This is harder since we need to check whether we currently have a grant on the uplink
-                        // We try to imitate MBTS which outputs 00 001010 001010
-                        aach.dl_usage = AccessAssignDlUsage::CommonControl;
-                        aach.ul_usage = self.ul_get_usage(ts);
-                        // Set access fields based on usage
-                        match aach.ul_usage {
-                            AccessAssignUlUsage::CommonOnly => {
-                                aach.f1_af1 = Some(AccessField{
-                                    access_code: 0,
-                                    base_frame_len: 4,
-                                });
-                                aach.f2_af2 = Some(AccessField{
-                                    access_code: 0,
-                                    base_frame_len: 4,
-                                });
-
-                            },
-                            AccessAssignUlUsage::CommonAndAssigned | 
-                            AccessAssignUlUsage::AssignedOnly => {
-                                aach.f2_af = Some(AccessField{
-                                    access_code: 0,
-                                    base_frame_len: 4,
-                                });
-                            },
-                            _ => { 
-                                // Traffic or unallocated; no AccessFields
-                            }
-                        }
-                    },
-                    2..=4 => {
-                        // Additional channels, unallocated except we sent a chanalloc
-                        // Those are currently unimplemented, so, unallocated it is
-                        aach.dl_usage = AccessAssignDlUsage::Unallocated;
-                        aach.ul_usage = AccessAssignUlUsage::Unallocated;
-                    },
-                    _ => panic!("finalize_ts_for_tick: invalid timeslot {}", ts.t),
-                }
-                
-                // if ts.t < 4 {
-                //     // ts 1,2,3
-                //     aach.dl_usage = AccessAssignDlUsage::CommonControl;
-                //     aach.ul_usage = AccessAssignUlUsage::CommonAndAssigned;
-                //     // f1 gets populated with DL Unallocated marker
-                //     aach.f2_af = Some(AccessField{
-                //         access_code: 0,
-                //         base_frame_len: 4,
-                //     });
-                // } else {
-                //     // ts 4
-                //     aach.dl_usage = AccessAssignDlUsage::Unallocated;
-                //     aach.ul_usage = AccessAssignUlUsage::Unallocated;
-                //     // f1 and f2 are populated with Unallocated markers
-                // }
-
-                // TODO FIXME: Access field defaults are possibly not great
-                // TODO FIXME: support assigned control
-                aach.to_bitbuf(&mut aach_bb);
-                
-            } else {
-                
-                // Fr18
-                let aach = AccessAssignFr18 {
-                    ul_usage: AccessAssignUlUsage::CommonOnly,
-                    f1_af1: Some(AccessField {
-                        access_code: 0,
-                        base_frame_len: 1,
-                    }),
-                    f2_af2: Some(AccessField {
-                        access_code: 0,
-                        base_frame_len: 0,
-                    }),
-                    ..Default::default()
-                };
-                // TODO FIXME: Access field defaults are possibly not great
-                aach.to_bitbuf(&mut aach_bb);
-            }            
-            
-            let bbk = TmvUnitdataReq {
-                logical_channel: LogicalChannel::Aach,
-                mac_block: aach_bb,                
-                scrambling_code: self.scrambling_code.unwrap(),
-            };
-            
-            elem.bbk = Some(bbk);
-        } else { panic!(); }
+        // Construct the BBK block to reflect UL/DL usage        
+        assert!(elem.bbk.is_none(), "BBK block already set");
+        elem.bbk = Some(self.generate_bbk_block(ts));
 
         // tracing::trace!("finalize_ts_for_tick: have {}{}{}",
         //     if elem.bbk.is_some() { "bbk " } else { "" },
@@ -675,41 +569,8 @@ impl BsChannelScheduler {
 
         // Populate blk1 if empty: BSCH on frame 18, SCH/HD on other frames
         if elem.blk1.is_none() {
-            if ts.f == 18 {
-                // Frame 18: BSCH (SDB burst) with SYNC
-                let mut buf = BitBuffer::new(60);
-                if let Some(ref mut precomps) = self.precomps {
-                    precomps.mac_sync.time = ts;
-                    precomps.mac_sync.to_bitbuf(&mut buf);
-                    precomps.mle_sync.to_bitbuf(&mut buf);
-                } else {
-                    panic!("precomps not available");
-                };
-
-                elem.blk1 = Some(TmvUnitdataReq {
-                    logical_channel: LogicalChannel::Bsch,
-                    mac_block: buf,
-                    scrambling_code: SCRAMB_INIT,
-                });
-            } else {
-                // Frames 1-17: SCH/HD (NDB burst) with NULL PDU
-                let mut buf = BitBuffer::new(124);
-                let mut pdu = MacResource {
-                    fill_bits: false,
-                    length_ind: 2,
-                    addr: None,
-                    ..Default::default()
-                };
-                let _ = pdu.update_len_and_fill_ind(0);
-                pdu.to_bitbuf(&mut buf);
-
-                elem.blk1 = Some(TmvUnitdataReq {
-                    logical_channel: LogicalChannel::SchHd,
-                    mac_block: buf,
-                    scrambling_code: self.scrambling_code.unwrap(),
-                });
-            }
-        }
+            elem.blk1 = Some(self.generate_default_blks(ts));
+        };
 
         // Check if second block may still be populated (blk1 is half-slot and blk2 is None)
         let blk1_lchan = elem.blk1.as_ref().unwrap().logical_channel;
@@ -723,44 +584,26 @@ impl BsChannelScheduler {
             
             let mut buf = BitBuffer::new(124);
             
-            // Update hyperframe and write MAC-SYSINFO (alternating sysinfo1/sysinfo2)
-            let precomps = self.precomps.as_mut().unwrap();
+            // Write MAC-SYSINFO (alternating sysinfo1/sysinfo2), followed by MLE-SYSINFO
             if ts.t % 2 == 1 {
-                precomps.mac_sysinfo1.hyperframe_number = Some(ts.h);
-                precomps.mac_sysinfo1.to_bitbuf(&mut buf);
+                self.precomps.mac_sysinfo1.to_bitbuf(&mut buf);
             } else {
-                precomps.mac_sysinfo2.hyperframe_number = Some(ts.h);
-                precomps.mac_sysinfo2.to_bitbuf(&mut buf);
+                self.precomps.mac_sysinfo2.to_bitbuf(&mut buf);
             }
-            self.precomps.as_ref().unwrap().mle_sysinfo.to_bitbuf(&mut buf);
+            self.precomps.mle_sysinfo.to_bitbuf(&mut buf);
 
             elem.blk2 = Some(TmvUnitdataReq {
                 logical_channel: LogicalChannel::Bnch,
                 mac_block: buf,
-                scrambling_code: self.scrambling_code.unwrap(),
+                scrambling_code: self.scrambling_code,
             })
-
-            // TESTING CODE: DL/UL SYNC CHECKING
-            // let mut buf = BitBuffer::new(124); // Exactly 124
-            // buf.write_bits(0xFFFF, 16);
-            // buf.write_bits(ts.t as u64, 8); 
-            // buf.write_bits(ts.f as u64, 8);
-            // buf.write_bits(ts.m as u64, 8);
-            // buf.write_bits(ts.h as u64, 16);
-            // buf.write_bits(0xFFFF, 16);
-            // buf.seek(0);
-            // elem.blk2 = Some(TmvUnitdataReq {
-            //     logical_channel: LogicalChannel::BNCH,
-            //     mac_block: buf,
-            //     scrambling_code: self.scrambling_code.unwrap(),
-            // });
         } else {
-            // We're done, no blk2 needed. Just a quick check blk1 is indeed long
+            // We're done, no blk2 needed. Just a quick sanity check blk1 indeed fills both half slots
             assert!(elem.blk1.as_ref().unwrap().mac_block.get_len() == 268, "blk1 is long, but blk2 is set!");
         }
 
-        assert!(elem.bbk.is_some(), "finalize_ts_for_tick: BBK block is not set, this should not happen");
-        assert!(elem.blk1.is_some(), "finalize_ts_for_tick: blk1 block is not set, this should not happen");
+        assert!(elem.bbk.is_some(), "BBK block is not set, this should not happen");
+        assert!(elem.blk1.is_some(), "blk1 block is not set, this should not happen");
 
         // If signalling channels are here, and there is spare room, we need to close them with a Null pdu
         elem.blk1 = self.try_add_null_pdus(elem.blk1);
@@ -781,6 +624,163 @@ impl BsChannelScheduler {
         // We now have our bbk, blk1 and (optional) blk2
         elem
     }
+
+
+    fn generate_bbk_block(&self, ts: TdmaTime) -> TmvUnitdataReq {
+
+        // let index = self.ts_to_sched_index(&ts);
+        // let sched = &self.sched[ts.t as usize - 1][index];
+
+        // Generate BBK block
+        let mut aach_bb = BitBuffer::new(14);
+        if ts.f != 18 {
+            
+            let mut aach = AccessAssign::default();
+            
+            match ts.t {
+                1 => {
+                    // STRATEGY:
+                    // - Send UL AssignedOnly if both ul1 and ul2 has been granted to an MS
+                    // - Send UL CommonAndAssigned if only ul1 has been granted
+                    // - Send UL CommonOnly if no grants have been made
+                    aach.dl_usage = AccessAssignDlUsage::CommonControl;
+                    aach.ul_usage = self.ul_get_usage(ts);
+                    match aach.ul_usage {
+                        AccessAssignUlUsage::CommonOnly => {
+                            aach.f1_af1 = Some(AccessField{
+                                access_code: 0,
+                                base_frame_len: 4,
+                            });
+                            aach.f2_af2 = Some(AccessField{
+                                access_code: 0,
+                                base_frame_len: 4,
+                            });
+
+                        },
+                        AccessAssignUlUsage::CommonAndAssigned | 
+                        AccessAssignUlUsage::AssignedOnly => {
+                            aach.f2_af = Some(AccessField{
+                                access_code: 0,
+                                base_frame_len: 4,
+                            });
+                        },
+                        _ => { 
+                            // Traffic or unallocated; no AccessFields
+                        }
+                    }
+                },
+                2..=4 => {
+                    // Additional channels, unallocated except we sent a chanalloc
+                    // Those are currently unimplemented, so, unallocated it is
+                    aach.dl_usage = AccessAssignDlUsage::Unallocated;
+                    aach.ul_usage = AccessAssignUlUsage::Unallocated;
+                },
+                _ => panic!("finalize_ts_for_tick: invalid timeslot {}", ts.t),
+            }
+            
+            aach.to_bitbuf(&mut aach_bb);
+            
+        } else {
+            
+            // Fr18
+            let aach = AccessAssignFr18 {
+                ul_usage: AccessAssignUlUsage::CommonOnly,
+                f1_af1: Some(AccessField {
+                    access_code: 0,
+                    base_frame_len: 1,
+                }),
+                f2_af2: Some(AccessField {
+                    access_code: 0,
+                    base_frame_len: 0,
+                }),
+                ..Default::default()
+            };
+            // TODO FIXME: Access field defaults are possibly not great
+            aach.to_bitbuf(&mut aach_bb);
+        }            
+        
+        TmvUnitdataReq {
+            logical_channel: LogicalChannel::Aach,
+            mac_block: aach_bb,                
+            scrambling_code: self.scrambling_code,
+        }
+    } 
+
+    fn generate_default_blks(&self, ts: TdmaTime) -> TmvUnitdataReq {
+        
+        match (ts.f, ts.t) {
+            (1..=17, 1) => {
+                // Two options: [Blk1: Null | Blk2: SYSINFO] or [Both: Null]
+                // We'll alternate based on multiframe
+                match ts.m % 2 {
+                    0 => {
+                        // Null + SYSINFO
+                        // SYSINFO gets added later, su we just make a half-slot Null pdu here
+                        let mut buf1 = BitBuffer::new(SCH_F_CAP);
+                        let blk1 = MacResource::null_pdu();
+                        blk1.to_bitbuf(&mut buf1);
+                        TmvUnitdataReq {
+                            logical_channel: LogicalChannel::SchF,
+                            mac_block: buf1,
+                            scrambling_code: self.scrambling_code,
+                        }
+                    },
+                    1 => {
+                        // Full-slot Null pdu
+                        let mut buf = BitBuffer::new(SCH_F_CAP);
+                        let blk = MacResource::null_pdu();
+                        blk.to_bitbuf(&mut buf);
+                        TmvUnitdataReq {
+                            logical_channel: LogicalChannel::SchF,
+                            mac_block: buf,
+                            scrambling_code: self.scrambling_code,
+                        }
+                    },
+                    _ => panic!(), // never happens
+                }
+            },
+            (1..=17, 2..=4) |
+            (18, _) => { 
+                // SYNC + SYSINFO
+                let mut buf = BitBuffer::new(60);
+                self.precomps.mac_sync.to_bitbuf(&mut buf);
+                self.precomps.mle_sync.to_bitbuf(&mut buf);
+                TmvUnitdataReq {
+                    logical_channel: LogicalChannel::Bsch,
+                    mac_block: buf,
+                    scrambling_code: SCRAMB_INIT,
+                }
+            },
+
+            // 1..=17 => {
+            //     // Frames 1-17: SCH/HD (NDB burst) with NULL PDU
+            //     let mut buf = BitBuffer::new(124);
+            //     let mut pdu = MacResource::null_pdu();
+            //     let _ = pdu.update_len_and_fill_ind(0);
+            //     pdu.to_bitbuf(&mut buf);
+
+            //     (Some(TmvUnitdataReq {
+            //         logical_channel: LogicalChannel::SchHd,
+            //         mac_block: buf,
+            //         scrambling_code: self.scrambling_code,
+            //     }), None)
+            // },
+            // 18 => {
+            //     // Frame 18: BSCH (SDB burst) with SYNC
+            //     let mut buf = BitBuffer::new(60);
+            //     self.precomps.mac_sync.to_bitbuf(&mut buf);
+            //     self.precomps.mle_sync.to_bitbuf(&mut buf);
+
+            //     (Some(TmvUnitdataReq {
+            //         logical_channel: LogicalChannel::Bsch,
+            //         mac_block: buf,
+            //         scrambling_code: SCRAMB_INIT,
+            //     }), None)
+            // },
+            _ => panic!() // never happens
+        }
+    }
+    
 
     pub fn dump_ul_schedule(&self, skip_empty: bool) {
         tracing::trace!("Dumping uplink schedule:");
@@ -853,7 +853,7 @@ mod tests {
             ms_txpwr_max_cell: 5,
             rxlev_access_min: 3,
             access_parameter: 7,
-            radio_dl_timeout: 15,
+            radio_dl_timeout: 3,
             cck_id: None,
             hyperframe_number: Some(0),
             option_field: SysinfoOptFieldFlag::DefaultDefForAccCodeA,
@@ -873,7 +873,7 @@ mod tests {
             rxlev_access_min: sysinfo1.rxlev_access_min,
             access_parameter: sysinfo1.access_parameter,
             radio_dl_timeout: sysinfo1.radio_dl_timeout,
-            cck_id: sysinfo1.cck_id, // TODO FIXME change to Some() when we enable encryption
+            cck_id: sysinfo1.cck_id,
             hyperframe_number: sysinfo1.hyperframe_number,
             option_field: SysinfoOptFieldFlag::ExtServicesBroadcast,
             ts_common_frames: None,
@@ -925,9 +925,7 @@ mod tests {
             mle_sync: mle_sync_pdu,
         }; 
         
-        let mut sched = BsChannelScheduler::new();
-        sched.set_scrambling_code(1);
-        sched.set_precomputed_msgs(precomps);
+        let mut sched = BsChannelScheduler::new(1, precomps);
         sched.set_dl_time(TdmaTime::default());
         sched
     }
