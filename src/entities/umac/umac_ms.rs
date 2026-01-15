@@ -27,7 +27,7 @@ use crate::entities::umac::pdus::mac_sysinfo::MacSysinfo;
 use crate::unimplemented_log;
 
 use super::subcomp::defrag::MacDefrag;
-use super::subcomp::fillbits::get_num_fill_bits;
+use super::subcomp::fillbits;
 
 
 pub struct UmacMs {
@@ -288,7 +288,7 @@ impl UmacMs {
 
         if pdu_len_bits > prim.pdu.get_len() {
             // TODO FIXME: I sometimes encounter len = 0b100010 = 32
-            // This does not fit, since it translates to 272 bits while it comes in a 264 bit slot
+            // This does not fit, since it translates to 272 bits while it comes in a 268 bit slot
             // We'll correct for that by simply cropping to the end... But this is strange
             tracing::warn!("rx_mac_resource: Strange length_ind {} in MAC resource, truncating from {} to {}", pdu.length_ind, pdu_len_bits, prim.pdu.get_len());
             pdu_len_bits = prim.pdu.get_len();
@@ -298,7 +298,7 @@ impl UmacMs {
         tracing::trace!("rx_mac_resource: {}", prim.pdu.dump_bin_full(true));
         let num_fill_bits= {
             if pdu.fill_bits {
-                get_num_fill_bits(&prim.pdu, pdu_len_bits, pdu.is_null_pdu())
+                fillbits::removal::get_num_fill_bits(&prim.pdu, pdu_len_bits, pdu.is_null_pdu())
             } else {
                 0
             }
@@ -414,7 +414,7 @@ impl UmacMs {
         let mut pdu_len_bits = prim.pdu.get_len();
         let num_fill_bits= {
             if pdu.fill_bits {
-                get_num_fill_bits(&prim.pdu, pdu_len_bits, false)
+                fillbits::removal::get_num_fill_bits(&prim.pdu, pdu_len_bits, false)
             } else {
                 0
             }
@@ -458,7 +458,7 @@ impl UmacMs {
         // Strip fill bits. Maintain original end to allow for later parsing of a second mac block
         let num_fill_bits= {
             if pdu.fill_bits {
-                get_num_fill_bits(&prim.pdu, pdu_len_bits, false)
+                fillbits::removal::get_num_fill_bits(&prim.pdu, pdu_len_bits, false)
             } else {
                 0
             }

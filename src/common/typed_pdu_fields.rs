@@ -82,12 +82,17 @@ pub mod typed {
 
     /// Parse a Type-2 element into a struct that implements `from_bitbuf`.
     pub fn parse_type2_struct<T, F>(
+        obit: bool,
         buffer: &mut BitBuffer, 
         parser: F
     ) -> Result<Option<T>, PduParseErr> 
     where
         F: FnOnce(&mut BitBuffer) -> Result<T, PduParseErr>
     {
+        if !obit {
+            return Ok(None);
+        }
+
         match delimiters::read_pbit(buffer) {
             Ok(true) => {
                 // Field present
@@ -128,6 +133,7 @@ pub mod typed {
 
     /// Write a Type-2 element from a struct that implements `to_bitbuf`.
     pub fn write_type2_struct<T, F>(
+        obit: bool,
         buffer: &mut BitBuffer,
         value: &Option<T>,
         writer: F
@@ -135,6 +141,11 @@ pub mod typed {
     where
         F: Fn(&T, &mut BitBuffer) -> Result<(), PduParseErr>
     {
+        // No optional elements
+        if !obit  {
+            assert!(value.is_none(), "Type2 element cannot be present when obit is false");
+            return Ok(());
+        }
         match value {
             Some(v) => {
                 tracing::trace!("write_type2_struct field_present {}", buffer.dump_bin());

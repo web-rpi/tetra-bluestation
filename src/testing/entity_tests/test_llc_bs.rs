@@ -3,7 +3,7 @@ mod tests {
     use crate::{common::{address::{SsiType, TetraAddress}, bitbuffer::BitBuffer, debug, tdma_time::TdmaTime, tetra_common::Sap, tetra_entities::TetraEntity}, config::stack_config::StackMode, saps::{sapmsg::{SapMsg, SapMsgInner}, tma::TmaUnitdataInd}, testing::component_test::{ComponentTest, default_test_config}};
 
     #[test]
-    fn test_fixme() {
+    fn test_udata_with_broken_mm_payload() {
         
         // INCOMPLETE VECTOR replace with something more meaningful
         debug::setup_logging_verbose();
@@ -35,31 +35,21 @@ mod tests {
 
         let components = vec![
             TetraEntity::Llc,
+            TetraEntity::Mle,
+            TetraEntity::Mm,
         ];
-        let sinks: Vec<TetraEntity> = vec![];
+        let sinks: Vec<TetraEntity> = vec![
+            TetraEntity::Umac,
+        ];
         test.populate_entities(components, sinks);
         
         // Submit and process message
         test.submit_message(test_sapmsg);
-        test.deliver_all_messages();
+        test.run_stack(Some(1));
         let sink_msgs = test.dump_sinks();
         
         // Evaluate results
-        assert_eq!(sink_msgs.len(), 0);
+        assert_eq!(sink_msgs.len(), 1);
         tracing::warn!("Validation of result not implemented");
-        
-
-        
-        // let pdu = DLocationUpdateAccept::from_bitbuf(&mut buf_in).expect("Failed parsing");
-
-        // tracing::info!("Parsed: {:?}", pdu);
-        // tracing::info!("Buf at end: {}", buf_in.dump_bin());
-        
-        // assert!(buf_in.get_len_remaining() == 0, "Buffer not fully consumed");
-
-        // let mut buf_out = BitBuffer::new_autoexpand(32);
-        // pdu.to_bitbuf(&mut buf_out).unwrap();
-        // tracing::info!("Serialized: {}", buf_out.dump_bin());
-        // assert_eq!(buf_out.to_bitstr(), test_vec);
     }
 }

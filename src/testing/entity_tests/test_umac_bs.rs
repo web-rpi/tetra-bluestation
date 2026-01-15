@@ -1,9 +1,9 @@
 #[cfg(test)]
 mod tests {
-    use crate::{common::{bitbuffer::BitBuffer, debug, tdma_time::TdmaTime, tetra_common::Sap, tetra_entities::TetraEntity}, config::stack_config::StackMode, saps::{sapmsg::{SapMsg, SapMsgInner}, tmv::{TmvUnitdataInd, enums::logical_chans::LogicalChannel}}, testing::component_test::{ComponentTest, default_test_config}};
+    use crate::{common::{address::{SsiType, TetraAddress}, bitbuffer::BitBuffer, debug, tdma_time::TdmaTime, tetra_common::Sap, tetra_entities::TetraEntity}, config::stack_config::StackMode, saps::{lmm::LmmMleUnitdataReq, sapmsg::{SapMsg, SapMsgInner}, tmv::{TmvUnitdataInd, enums::logical_chans::LogicalChannel}}, testing::component_test::{ComponentTest, default_test_config}};
 
     #[test]
-    fn test_fragmented_sch_hu_and_sch_f() {
+    fn test_in_fragmented_sch_hu_and_sch_f() {
 
         // Receive SCH/HU containing MAC-ACCESS with fragmentation start
         // Then receive SCH-F containing MAC-END (UL)
@@ -62,7 +62,7 @@ mod tests {
 
 
     #[test]
-    fn test_fragmented_sch_hu_and_sch_hu() {
+    fn test_in_fragmented_sch_hu_and_sch_hu() {
 
         // Receive SCH/HU containing MAC-ACCESS with fragmentation start
         // Then receive SCH-HU containing MAC-END-HU
@@ -119,6 +119,55 @@ mod tests {
         let sink_msgs = test.dump_sinks();
         assert_eq!(sink_msgs.len(), 1);
         tracing::info!("We have the expected CMCE message, but full validation of result not implemented");
+    }
+
+    #[test]
+    fn test_out_fragmented_resource() {
+
+        // Test for UMAC (and LLC/MLE)
+        // The vector is an MM DAttachDetachGroupIdentityAcknowledgement which contains a lot of groups.
+        // As it is very large, it needs to be fragmented at the MAC layer. 
+        debug::setup_logging_verbose();
+        let test_vec = "10110011011100110100110001101011100000000000011101010011001110110100000000000111010100111111101101000000000001110101010000000011010000000000011101010100000010110100000000000111010101000001001101000000000001110101010000011011010000000000011101010100001000110100000000000111010101000010101101000000000001110101010000110011010000000000011101010100001110110100000000000111010101000100001101000000000001110101010001001011010000000000011101010100010100";
+        let test_t = TdmaTime::default().add_timeslots(2); // Uplink time: 0/1/1/1, dl time 0/1/1/3
+        let test_prim = LmmMleUnitdataReq {
+            sdu: BitBuffer::from_bitstr(test_vec),
+            handle: 0,
+            address: TetraAddress { encrypted: false, ssi_type: SsiType::Ssi, ssi: 30128 },
+            layer2service: 0,
+            stealing_permission: false,
+            stealing_repeats_flag: false,
+            encryption_flag: false,
+            is_null_pdu: false,
+        };
+        let test_sapmsg = SapMsg {
+            sap: Sap::LmmSap,
+            src: TetraEntity::Mm,
+            dest: TetraEntity::Mle,
+            dltime: test_t,
+            msg: SapMsgInner::LmmMleUnitdataReq(test_prim)};
+
+        // Setup testing stack
+        let config = default_test_config(StackMode::Bs);
+        let mut test = ComponentTest::new(config, Some(test_t));
+        let components = vec![
+            TetraEntity::Umac,
+            TetraEntity::Llc,
+            TetraEntity::Mle,
+        ];
+        let sinks: Vec<TetraEntity> = vec![
+            TetraEntity::Lmac,
+        ];
+        test.populate_entities(components, sinks);
+        
+        // Submit and process message
+        test.submit_message(test_sapmsg);
+        test.run_stack(Some(4));
+        let sink_msgs = test.dump_sinks();
+        
+        // Evaluate results. We should have an MM message in the sink
+        assert_eq!(sink_msgs.len(), 1);
+        tracing::info!("We have the expected MM message, but full validation of result not implemented");
     }
 }
 

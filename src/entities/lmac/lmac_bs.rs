@@ -197,7 +197,7 @@ impl LmacBs {
 
     fn rx_tmv_configure_req(&mut self, _queue: &mut MessageQueue, mut message: SapMsg) {
 
-        tracing::trace!("rx_tmv_configure_req: {:?}", message);
+        tracing::trace!("rx_tmv_configure_req");
         let SapMsgInner::TmvConfigureReq(_prim) = &mut message.msg else {panic!()};
         unimplemented_log!("rx_tmv_configure_req");
 
@@ -220,7 +220,7 @@ impl LmacBs {
     /// Request from Umac to transmit a message
     fn rx_tmv_unitdata_req_slot(&mut self, queue: &mut MessageQueue, mut message: SapMsg) {
 
-        tracing::debug!("rx_tmv_unitdata_req_slot: {:?}", message);
+        tracing::debug!("rx_tmv_unitdata_req_slot");
         let SapMsgInner::TmvUnitdataReq(prim) = &mut message.msg else {panic!()};
         
         // assert!(prim.ts == self.time, "rx_tmv_unitdata_req_slot: timeslot mismatch, lmac has {} while prim is for {}", self.time, prim.ts);

@@ -1,12 +1,13 @@
 #![allow(dead_code)]
 
-#[cfg(test)]
-mod testing;
 mod config;
 mod common;
 mod entities;
 mod saps;
- 
+
+#[cfg(test)]
+mod testing;
+
 use clap::Parser;
 
 use common::debug::setup_logging_default;

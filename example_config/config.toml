@@ -28,7 +28,7 @@ backend = "SoapySdr"
 # !!! Make sure to also edit all related fields in the cell_info section to fit this frequency. 
 tx_freq = 438025000
 rx_freq = 433025000
-ppm_err = 0             # Adjust if your SDR has a non-negligible tuning error
+ppm_err = 0.0                       # Adjust if your SDR has a non-negligible tuning error
 
 # Sane defaults for LimeSDR
 # [phy_io.soapysdr.iocfg_limesdr]

@@ -1,8 +1,11 @@
 use crate::config::stack_config::SharedConfig;
 use crate::common::messagerouter::MessageQueue;
-use crate::entities::mm::enums::mm_location_update_type::MmLocationUpdateType;
+use crate::entities::mm::components::not_supported::make_ul_mm_pdu_function_not_supported;
+use crate::entities::mm::enums::location_update_type::LocationUpdateType;
+use crate::entities::mm::enums::status_uplink::StatusUplink;
 use crate::entities::mm::fields::group_identity_location_accept::GroupIdentityLocationAccept;
 use crate::entities::mm::fields::group_identity_uplink::GroupIdentityUplink;
+use crate::entities::mm::pdus::u_mm_status::UMmStatus;
 use crate::saps::lmm::LmmMleUnitdataReq;
 use crate::saps::sapmsg::{SapMsg, SapMsgInner};
 use crate::common::address::{SsiType, TetraAddress};
@@ -32,7 +35,7 @@ impl MmBs {
     }
 
     fn rx_u_itsi_detach(&mut self, _queue: &mut MessageQueue, mut message: SapMsg) {
-        tracing::trace!("rx_u_itsi_detach: {:?}", message);
+        tracing::trace!("rx_u_itsi_detach");
         let SapMsgInner::LmmMleUnitdataInd(prim) = &mut message.msg else {panic!()};
         
         let _pdu = match UItsiDetach::from_bitbuf(&mut prim.sdu) {
@@ -55,7 +58,7 @@ impl MmBs {
     }
 
     fn rx_u_location_update_demand(&mut self, queue: &mut MessageQueue, mut message: SapMsg) {
-        tracing::trace!("rx_location_update_demand: {:?}", message);
+        tracing::trace!("rx_location_update_demand");
         let SapMsgInner::LmmMleUnitdataInd(prim) = &mut message.msg else {panic!()};
 
         let pdu = match ULocationUpdateDemand::from_bitbuf(&mut prim.sdu) {
@@ -71,24 +74,38 @@ impl MmBs {
 
         // Check if we can satisfy this request, print unsupported stuff
         if !Self::feature_check_u_location_update_demand(&pdu) {
-            tracing::error!("Unsupported features in ULocationUpdateDemand");
+            tracing::error!("Unsupported critical features in ULocationUpdateDemand");
             return;
         }
 
+        // Handle Energy Saving Mode request
+        // let esi = if let Some(esm) = pdu.energy_saving_mode {
+        //     if esm != EnergySavingMode::StayAlive {
+        //         unimplemented_log!("Got req for EnergySavingMode {}, overriding with {}", esm, EnergySavingMode::StayAlive);
+        //     }
+        //     Some(EnergySavingInformation {
+        //         energy_saving_mode: EnergySavingMode::StayAlive,
+        //         frame_number: None, 
+        //         multiframe_number: None,
+        //     })
+        // } else {
+        //     None
+        // };
+        let esi = None;
+
         // Try to register the client
         let issi = prim.received_address.ssi;
-        match self.client_mgr.register_client(issi, true) {
+        match self.client_mgr.try_register_client(issi, true) {
             Ok(_) => {},
             Err(e) => {
                 tracing::warn!("Failed registering roaming MS {}: {:?}", issi, e);
-                unimplemented_log!("Handle failed registration of roaming MS");
+                // unimplemented_log!("Handle failed registration of roaming MS");
                 return;
             }
         }
 
         // Process optional GroupIdentityLocationDemand field
         let gila = if let Some(gild) = pdu.group_identity_location_demand {
-            
             // Try to attach to requested groups, then build GroupIdentityLocationAccept element
             let accepted_groups = if let Some(giu) = &gild.group_identity_uplink {
                 Some(self.try_attach_detach_groups(issi, &giu))
@@ -112,7 +129,7 @@ impl MmBs {
             ssi: Some(issi as u64),
             address_extension: None,
             subscriber_class: None,
-            energy_saving_information: None,
+            energy_saving_information: esi,
             scch_information_and_distribution_on_18th_frame: None,
             new_registered_area: None,
             security_downlink: None,
@@ -152,9 +169,57 @@ impl MmBs {
         queue.push_back(msg);        
     }
 
+    fn rx_u_mm_status(&mut self, queue: &mut MessageQueue, mut message: SapMsg) {
+        tracing::trace!("rx_u_mm_status");
+        let SapMsgInner::LmmMleUnitdataInd(prim) = &mut message.msg else {panic!()};
+        
+        let pdu = match UMmStatus::from_bitbuf(&mut prim.sdu) {
+            Ok(pdu) => {
+                tracing::debug!("<- {:?}", pdu);
+                pdu
+            }
+            Err(e) => {
+                tracing::warn!("Failed parsing UItsiDetach: {:?} {}", e, prim.sdu.dump_bin());
+                return;
+            }
+        };
+
+        let handled = false; // make mutable en zet vanuit handler functie naar ture
+        match pdu.status_uplink {
+            StatusUplink::ChangeOfEnergySavingModeRequest => unimplemented_log!("{:?}", pdu.status_uplink),
+            StatusUplink::ChangeOfEnergySavingModeResponse => unimplemented_log!("{:?}", pdu.status_uplink),
+            StatusUplink::DualWatchModeRequest => unimplemented_log!("{:?}", pdu.status_uplink),
+            StatusUplink::TerminatingDualWatchModeRequest => unimplemented_log!("{:?}", pdu.status_uplink),
+            StatusUplink::ChangeOfDualWatchModeResponse => unimplemented_log!("{:?}", pdu.status_uplink),
+            StatusUplink::StartOfDirectModeOperation => unimplemented_log!("{:?}", pdu.status_uplink),
+            StatusUplink::MsFrequencyBandsInformation => unimplemented_log!("{:?}", pdu.status_uplink),
+            StatusUplink::RequestToStartDmGatewayOperation => unimplemented_log!("{:?}", pdu.status_uplink),
+            StatusUplink::RequestToContinuedmGatewayOperation => unimplemented_log!("{:?}", pdu.status_uplink),
+            StatusUplink::RequestToStopDmGatewayOperation => unimplemented_log!("{:?}", pdu.status_uplink),
+            StatusUplink::RequestToAddDmMsAddresses => unimplemented_log!("{:?}", pdu.status_uplink),
+            StatusUplink::RequestToRemoveDmMsAddresses => unimplemented_log!("{:?}", pdu.status_uplink),
+            StatusUplink::RequestToReplaceDmMsAddresses => unimplemented_log!("{:?}", pdu.status_uplink),
+            StatusUplink::AcceptanceToRemovalOfDmMsAddresses => unimplemented_log!("{:?}", pdu.status_uplink),
+            StatusUplink::AcceptanceToChangeRegistrationLabel => unimplemented_log!("{:?}", pdu.status_uplink),
+            StatusUplink::AcceptanceToStopDmGatewayOperation => unimplemented_log!("{:?}", pdu.status_uplink),
+            _ => {
+                unimplemented_log!("{:?}", pdu.status_uplink)
+            }
+        }
+
+        if !handled {
+            let (sapmsg, debug_str) = make_ul_mm_pdu_function_not_supported(
+                MmPduTypeUl::UMmStatus, 
+                Some((6, pdu.status_uplink.into())),
+                prim.received_address.ssi,
+                message.dltime);
+            tracing::debug!("{}", debug_str);
+            queue.push_back(sapmsg);
+        }
+    }
 
     fn rx_u_attach_detach_group_identity(&mut self, queue: &mut MessageQueue, mut message: SapMsg) {
-        tracing::trace!("rx_u_attach_detach_group_identity: {:?}", message);
+        tracing::trace!("rx_u_attach_detach_group_identity");
         let SapMsgInner::LmmMleUnitdataInd(prim) = &mut message.msg else {panic!()};
         
         let issi = prim.received_address.ssi;
@@ -252,7 +317,7 @@ impl MmBs {
             MmPduTypeUl::ULocationUpdateDemand => 
                 self.rx_u_location_update_demand(queue, message),
             MmPduTypeUl::UMmStatus =>   
-                unimplemented_log!("UMmStatus"),
+                self.rx_u_mm_status(queue, message),
             MmPduTypeUl::UCkChangeResult => 
                 unimplemented_log!("UCkChangeResult"),
             MmPduTypeUl::UOtar =>   
@@ -306,7 +371,7 @@ impl MmBs {
 
     fn feature_check_u_location_update_demand(pdu: &ULocationUpdateDemand) -> bool {
         let mut supported = true;
-        if pdu.location_update_type != MmLocationUpdateType::RoamingLocationUpdating && pdu.location_update_type != MmLocationUpdateType::ItsiAttach {
+        if pdu.location_update_type != LocationUpdateType::RoamingLocationUpdating && pdu.location_update_type != LocationUpdateType::ItsiAttach {
             unimplemented_log!("Unsupported {}", pdu.location_update_type);
             supported = false;
         }

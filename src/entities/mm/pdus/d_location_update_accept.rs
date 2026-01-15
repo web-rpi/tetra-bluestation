@@ -3,7 +3,8 @@ use core::fmt;
 use crate::common::pdu_parse_error::PduParseErr;
 use crate::common::bitbuffer::BitBuffer;
 use crate::common::typed_pdu_fields::*;
-use crate::entities::mm::enums::mm_location_update_type::MmLocationUpdateType;
+use crate::entities::mm::enums::location_update_type::LocationUpdateType;
+use crate::entities::mm::fields::energy_saving_information::EnergySavingInformation;
 use crate::entities::mm::fields::group_identity_location_accept::GroupIdentityLocationAccept;
 use crate::expect_pdu_type;
 use crate::entities::mm::enums::mm_pdu_type_dl::MmPduTypeDl;
@@ -18,7 +19,7 @@ use crate::entities::mm::enums::type34_elem_id_dl::MmType34ElemIdDl;
 #[derive(Debug)]
 pub struct DLocationUpdateAccept {
     /// Type1, 3 bits, Location update accept type
-    pub location_update_accept_type: MmLocationUpdateType,
+    pub location_update_accept_type: LocationUpdateType,
     /// Type2, 24 bits, ASSI/(V)ASSI of MS,
     pub ssi: Option<u64>,
     /// Type2, 24 bits, MNI of MS,
@@ -26,7 +27,7 @@ pub struct DLocationUpdateAccept {
     /// Type2, 16 bits, Subscriber class
     pub subscriber_class: Option<u64>,
     /// Type2, 14 bits, Energy saving information
-    pub energy_saving_information: Option<u64>,
+    pub energy_saving_information: Option<EnergySavingInformation>,
     /// Type2, 6 bits, SCCH information and distribution on 18th frame
     pub scch_information_and_distribution_on_18th_frame: Option<u64>,
     /// Type4, See note,
@@ -57,7 +58,7 @@ impl DLocationUpdateAccept {
         
         // Type1
         let val: u64 = buffer.read_field(3, "location_update_accept_type")?;
-        let result = MmLocationUpdateType::try_from(val);
+        let result = LocationUpdateType::try_from(val);
         let location_update_accept_type = match result {
             Ok(x) => x,
             Err(_) => return Err(PduParseErr::InvalidValue{field: "location_update_accept_type", value: val})
@@ -73,7 +74,7 @@ impl DLocationUpdateAccept {
         // Type2
         let subscriber_class = typed::parse_type2_generic(obit, buffer, 16, "subscriber_class")?;
         // Type2
-        let energy_saving_information = typed::parse_type2_generic(obit, buffer, 14, "energy_saving_information")?;
+        let energy_saving_information = typed::parse_type2_struct(obit, buffer, EnergySavingInformation::from_bitbuf)?;
         // Type2
         let scch_information_and_distribution_on_18th_frame = typed::parse_type2_generic(obit, buffer, 6, "scch_information_and_distribution_on_18th_frame")?;
 
@@ -147,7 +148,7 @@ impl DLocationUpdateAccept {
         typed::write_type2_generic(obit, buffer, self.subscriber_class, 16);
 
         // Type2
-        typed::write_type2_generic(obit, buffer, self.energy_saving_information, 14);
+        typed::write_type2_struct(obit, buffer, &self.energy_saving_information, EnergySavingInformation::to_bitbuf)?;
 
         // Type2
         typed::write_type2_generic(obit, buffer, self.scch_information_and_distribution_on_18th_frame, 6);

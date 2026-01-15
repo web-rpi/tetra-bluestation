@@ -409,6 +409,11 @@ impl BitBuffer {
     pub fn get_len_remaining(&self) -> usize {
         self.end - self.pos
     }
+
+    /// Number of bits written, from start to pos.
+    pub fn get_len_written(&self) -> usize {
+        self.pos - self.start
+    }
     
     /// Get the current position, relative to window
     pub fn get_pos(&self) -> usize {

@@ -35,7 +35,7 @@ use crate::entities::umac::pdus::mac_sysinfo::MacSysinfo;
 use crate::entities::umac::pdus::mac_u_blck::MacUBlck;
 use crate::entities::umac::pdus::mac_u_signal::MacUSignal;
 use crate::entities::umac::subcomp::event_labels::EventLabelStore;
-use crate::entities::umac::subcomp::fillbits::get_num_fill_bits;
+use crate::entities::umac::subcomp::fillbits;
 use crate::entities::umac::subcomp::bs_sched::{BsChannelScheduler, PrecomputedUmacPdus};
 use crate::{assert_warn, unimplemented_log};
 
@@ -68,30 +68,24 @@ pub struct UmacBs {
 impl UmacBs {
     pub fn new(config: SharedConfig) -> Self {
 
-        let mut ret = Self { 
+        let scrambling_code = config.config().scrambling_code();
+        let precomps = Self::generate_precomps(&config);
+        Self { 
             self_component: TetraEntity::Umac,
             config,
             endpoint_id: 0, 
             defrag: MacDefrag::new(),
             event_label_store: EventLabelStore::new(),
-            channel_scheduler: BsChannelScheduler::new(),
-            // ulrx_scheduler: UlScheduler::new(),
-        };
-
-        if ret.config.config().stack_mode == StackMode::Bs {
-            // Precompute various frequently transmitted messages
-            ret.initialize_scheduler();
-        } 
-
-        ret
+            channel_scheduler: BsChannelScheduler::new(scrambling_code, precomps),
+        }
     }
 
     /// Precomputes SYNC, SYSINFO messages (and subfield variants) for faster TX msg building
     /// Precomputed PDUs are passed to scheduler
     /// Needs to be re-invoked if any network parameter changes
-    pub fn initialize_scheduler(&mut self) {
+    pub fn generate_precomps(config: &SharedConfig) -> PrecomputedUmacPdus{
 
-        let c = self.config.config();
+        let c = config.config();
 
         // TODO FIXME make more/all parameters configurable
         let ext_services = SysinfoExtendedServices {
@@ -130,8 +124,8 @@ impl UmacBs {
             rxlev_access_min: 3,
             access_parameter: 7,
             radio_dl_timeout: 3,
-            cck_id: Some(1), // TODO FIXME change to Some() when we enable encryption
-            hyperframe_number: None,
+            cck_id: None,
+            hyperframe_number: Some(0),
             option_field: SysinfoOptFieldFlag::DefaultDefForAccCodeA,
             ts_common_frames: None,
             default_access_code: Some(def_access),
@@ -150,7 +144,7 @@ impl UmacBs {
             access_parameter: sysinfo1.access_parameter,
             radio_dl_timeout: sysinfo1.radio_dl_timeout,
             cck_id: None,
-            hyperframe_number: Some(0),
+            hyperframe_number: Some(0), // Updated dynamically in scheduler
             option_field: SysinfoOptFieldFlag::ExtServicesBroadcast,
             ts_common_frames: None,
             default_access_code: None,
@@ -193,16 +187,13 @@ impl UmacBs {
             late_entry_supported: true,
         };
 
-        let precomps = PrecomputedUmacPdus {
+        PrecomputedUmacPdus {
             mac_sysinfo1: sysinfo1,
             mac_sysinfo2: sysinfo2,
             mle_sysinfo: mle_sysinfo_pdu,        
             mac_sync: mac_sync_pdu,
             mle_sync: mle_sync_pdu,
-        }; 
-        
-        self.channel_scheduler.set_scrambling_code(c.scrambling_code());
-        self.channel_scheduler.set_precomputed_msgs(precomps);
+        }
     }
 
     fn rx_tmv_prim(&mut self, queue: &mut MessageQueue, message: SapMsg) {
@@ -479,17 +470,17 @@ impl UmacBs {
             }
         };
 
+        // Truncate len if past end (okay with standard)
         if pdu_len_bits > prim.pdu.get_len() {
-            // tracing::warn!("rx_mac_data: Strange length_ind {} in MAC resource, truncating from {} to {}", pdu.length_ind, pdu_len_bits, prim.pdu.get_len());
-            // pdu_len_bits = prim.pdu.get_len() as usize;
-            panic!();
+            tracing::warn!("truncating MAC-DATA len from {} to {}", pdu_len_bits, prim.pdu.get_len());
+            pdu_len_bits = prim.pdu.get_len() as usize;
         }
 
         // Strip fill bits. Maintain original end to allow for later parsing of a second mac block
         tracing::trace!("rx_mac_data: {}", prim.pdu.dump_bin_full(true));
         let num_fill_bits= {
             if pdu.fill_bits {
-                get_num_fill_bits(&prim.pdu, pdu_len_bits, is_null_pdu)
+                fillbits::removal::get_num_fill_bits(&prim.pdu, pdu_len_bits, is_null_pdu)
             } else {
                 0
             }
@@ -604,28 +595,6 @@ impl UmacBs {
         let SapMsgInner::TmvUnitdataInd(prim) = &mut message.msg else {panic!()};
         assert!(prim.pdu.get_pos() == 0); // We should be at the start of the MAC PDU
 
-
-            // TESTING CODE FOR UL/DL SYNCHRONIZATION
-            // let addr = TetraAddress {
-            //     encrypted: false,
-            //     ssi: 0xff00ff,
-            //     ssi_type: SsiType::Issi,
-            // };
-            // let res = BsChannelScheduler::dl_make_minimal_resource(&addr, None, false);
-            // let mut buf = BitBuffer::new_autoexpand(32);
-            // let ts = message.t_submit;
-            // let ts_ul = message.t_submit.add_timeslots(-2);
-            // buf.write_bits(0xFFFF, 16);
-            // buf.write_bits(ts.t as u64, 8); 
-            // buf.write_bits(ts.f as u64, 8);
-            // buf.write_bits(ts.m as u64, 8);
-            // buf.write_bits(ts.h as u64, 16);
-            // buf.write_bits(0xFFFF, 16);
-            // buf.seek(0);
-            // self.channel_scheduler.dl_enqueue_tma(ts_ul.t, res, buf);
-
-            // return;
-
         let pdu = match MacAccess::from_bitbuf(&mut prim.pdu) {
             Ok(pdu) => {
                 tracing::debug!("<- {:?}", pdu);
@@ -671,12 +640,15 @@ impl UmacBs {
             // No length ind, we have capacity request. Fill slot.
             pdu_len_bits = prim.pdu.get_len();
         }
+        if pdu_len_bits > prim.pdu.get_len() { 
+            tracing::warn!("truncating MAC-ACCESS len from {} to {}", pdu_len_bits, prim.pdu.get_len());
+            pdu_len_bits = prim.pdu.get_len(); 
+        }
 
         // Strip fill bits. Maintain original end to allow for later parsing of a second mac block
         // tracing::trace!("rx_mac_access: {}", prim.pdu.dump_bin_full(true));
-        assert!(pdu_len_bits <= prim.pdu.get_len(), "MAC-ACCESS pdu longer than buf");
         let num_fill_bits = if pdu.fill_bits {
-            get_num_fill_bits(&prim.pdu, pdu_len_bits, pdu.is_null_pdu())
+            fillbits::removal::get_num_fill_bits(&prim.pdu, pdu_len_bits, pdu.is_null_pdu())
         } else {
             0
         };
@@ -797,7 +769,7 @@ impl UmacBs {
         let mut pdu_len_bits = prim.pdu.get_len();
         let num_fill_bits= {
             if pdu.fill_bits {
-                get_num_fill_bits(&prim.pdu, pdu_len_bits, false)
+                fillbits::removal::get_num_fill_bits(&prim.pdu, pdu_len_bits, false)
             } else {
                 0
             }
@@ -841,11 +813,16 @@ impl UmacBs {
             // No length ind, we have capacity request. Fill slot.
             prim.pdu.get_len()
         };
+        if pdu_len_bits > prim.pdu.get_len() { 
+            tracing::warn!("truncating MAC-END-UL len from {} to {}", pdu_len_bits, prim.pdu.get_len());
+            pdu_len_bits = prim.pdu.get_len(); 
+        }
+
 
         // Strip fill bits if any
         let num_fill_bits = {
             if pdu.fill_bits {
-                get_num_fill_bits(&prim.pdu, pdu_len_bits, false)
+                fillbits::removal::get_num_fill_bits(&prim.pdu, pdu_len_bits, false)
             } else {
                 0
             }
@@ -940,7 +917,6 @@ impl UmacBs {
             }
             let len = length_ind as usize * 8;
             if len > prim.pdu.get_len() {
-                tracing::warn!("rx_mac_end_hu: length_ind > buf len, using buf len");
                 prim.pdu.get_len()
             } else {
                 len
@@ -949,13 +925,17 @@ impl UmacBs {
             // No length ind, we have capacity request. Fill slot.
             prim.pdu.get_len()
         };
-        // Max length is buf length
+        if pdu_len_bits > prim.pdu.get_len() { 
+            tracing::warn!("truncating MAC-END-HU len from {} to {}", pdu_len_bits, prim.pdu.get_len());
+            pdu_len_bits = prim.pdu.get_len(); 
+        }
+
         
 
         // Strip fill bits if any
         let num_fill_bits = {
             if pdu.fill_bits {
-                get_num_fill_bits(&prim.pdu, pdu_len_bits, false)
+                fillbits::removal::get_num_fill_bits(&prim.pdu, pdu_len_bits, false)
             } else {
                 0
             }

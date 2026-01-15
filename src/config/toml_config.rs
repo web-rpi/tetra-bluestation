@@ -6,8 +6,7 @@ use std::path::Path;
 use serde::Deserialize;
 use toml::Value;
 
-use crate::config::stack_config::{CfgPhyIo, PhyBackend};
-use crate::{CfgCellInfo, CfgNetInfo, SharedConfig, StackConfig, StackMode, StackState};
+use crate::config::stack_config::{CfgPhyIo, PhyBackend, CfgCellInfo, CfgNetInfo, SharedConfig, StackConfig, StackMode, StackState};
 use super::stack_config_soapy::{CfgSoapySdr, LimeSdrCfg, SXceiverCfg, UsrpB2xxCfg};
 
 /// Build `SharedConfig` from a TOML configuration file

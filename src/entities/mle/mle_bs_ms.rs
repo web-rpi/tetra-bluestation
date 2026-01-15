@@ -32,7 +32,7 @@ impl Mle {
 
     fn rx_tla_mle_pdu(&mut self, _queue: &mut MessageQueue, message: SapMsg) {
         
-        tracing::trace!("rx_tla_mle_pdu: {:?}", message);
+        tracing::trace!("rx_tla_mle_pdu");
 
         // Extract tm_sdu from whatever primitive we have
         let tm_sdu = {
@@ -70,7 +70,7 @@ impl Mle {
 
     fn rx_tla_prim(&mut self, queue: &mut MessageQueue, message: SapMsg) {
         
-        tracing::trace!("rx_tla_prim: {:?}", message);
+        tracing::trace!("rx_tla_prim");
         match message.msg {
             SapMsgInner::TlaTlDataIndBl(_) => {
                 self.rx_tla_data_ind_bl(queue, message);
@@ -251,7 +251,7 @@ impl Mle {
     }
 
     fn rx_tlmb_prim(&mut self, queue: &mut MessageQueue, message: SapMsg) {
-        tracing::trace!("rx_tlmb_prim: {:?}", message);
+        tracing::trace!("rx_tlmb_prim");
         match message.msg {
             SapMsgInner::TlmbSysinfoInd(_) => {
                 self.rx_tlmb_tl_sysinfo_ind(queue, message);
@@ -264,7 +264,7 @@ impl Mle {
     }
 
     pub fn rx_tlmb_tl_sysinfo_ind(&self, _queue: &mut MessageQueue, mut message: SapMsg) {
-        tracing::trace!("rx_tlmb_tl_sysinfo_ind: {:?}", message);
+        tracing::trace!("rx_tlmb_tl_sysinfo_ind");
         
         let SapMsgInner::TlmbSysinfoInd(inner) = &mut message.msg else {panic!()};
 
@@ -321,7 +321,7 @@ impl Mle {
     }
 
     pub fn rx_tlmb_tl_sync_ind(&self, _queue: &mut MessageQueue, mut message: SapMsg) {
-        tracing::trace!("rx_tlmb_tl_sync_ind: {:?}", message);
+        tracing::trace!("rx_tlmb_tl_sync_ind");
         
         let SapMsgInner::TlmbSyncInd(inner) = &mut message.msg else {panic!()};
 
@@ -381,8 +381,8 @@ impl Mle {
     }
 
     
-    fn rx_tlmc_prim(&mut self, _queue: &mut MessageQueue, message: SapMsg) {
-        tracing::trace!("rx_tlmc_prim: {:?}", message);
+    fn rx_tlmc_prim(&mut self, _queue: &mut MessageQueue, _message: SapMsg) {
+        tracing::trace!("rx_tlmc_prim");
         unimplemented!("rx_tlmc_prim");
         // match &message.msg {
         //     _ => {
@@ -392,7 +392,7 @@ impl Mle {
     }
 
     fn rx_lmm_mle_unitdata_req(&mut self, queue: &mut MessageQueue, mut message: SapMsg) {
-        tracing::trace!("rx_lmm_mle_unitdata_req: {:?}", message);
+        tracing::trace!("rx_lmm_mle_unitdata_req");
         let SapMsgInner::LmmMleUnitdataReq(prim) = &mut message.msg else {panic!()};
 
         let mle_prot_discriminator = MleProtocolDiscriminator::Mm;
@@ -428,7 +428,7 @@ impl Mle {
     }
 
     fn rx_lmm_prim(&mut self, queue: &mut MessageQueue, message: SapMsg) {
-        tracing::trace!("rx_lmm_prim: {:?}", message);
+        tracing::trace!("rx_lmm_prim");
         match &message.msg {
             SapMsgInner::LmmMleUnitdataReq(_prim) => {
                 self.rx_lmm_mle_unitdata_req(queue, message);
@@ -437,8 +437,8 @@ impl Mle {
         }
     }
 
-    fn rx_tlpd_prim(&mut self, _queue: &mut MessageQueue, message: SapMsg) {
-        tracing::trace!("rx_tlpd_prim: {:?}", message);
+    fn rx_tlpd_prim(&mut self, _queue: &mut MessageQueue, _message: SapMsg) {
+        tracing::trace!("rx_tlpd_prim");
         unimplemented!("rx_tlpd_prim");
         // match &message.msg {
         //     _ => {
@@ -447,8 +447,8 @@ impl Mle {
         // }
     }
 
-    fn rx_lcmc_prim(&mut self, _queue: &mut MessageQueue, message: SapMsg) {
-        tracing::trace!("rx_lcmc_prim: {:?}", message);
+    fn rx_lcmc_prim(&mut self, _queue: &mut MessageQueue, _message: SapMsg) {
+        tracing::trace!("rx_lcmc_prim");
         unimplemented!("rx_lcmc_prim");
         // match &message.msg {
         //     _ => {

@@ -219,7 +219,7 @@ impl LmacMs {
 
     fn rx_tmv_configure_req(&mut self, _queue: &mut MessageQueue, mut message: SapMsg) {
 
-        tracing::trace!("rx_tmv_configure_req: {:?}", message);
+        tracing::trace!("rx_tmv_configure_req");
         let SapMsgInner::TmvConfigureReq(prim) = &mut message.msg else {panic!()};
 
         if let Some(time) = prim.time { 
@@ -240,7 +240,7 @@ impl LmacMs {
 
     fn rx_tmv_prim(&mut self, queue: &mut MessageQueue, message: SapMsg) {
 
-        tracing::trace!("rx_tmv_prim: {:?}", message);
+        tracing::trace!("rx_tmv_prim");
 
         match message.msg {
             SapMsgInner::TmvConfigureReq(_) => {

@@ -3,7 +3,7 @@ use core::fmt;
 use crate::common::pdu_parse_error::PduParseErr;
 
 use crate::common::bitbuffer::BitBuffer;
-use crate::common::typed_pdu_fields::*;
+use crate::entities::mm::enums::status_uplink::StatusUplink;
 use crate::expect_pdu_type;
 use crate::entities::mm::enums::mm_pdu_type_ul::MmPduTypeUl;
 
@@ -18,9 +18,10 @@ use crate::entities::mm::enums::mm_pdu_type_ul::MmPduTypeUl;
 #[derive(Debug)]
 pub struct UMmStatus {
     /// Type1, 6 bits, See notes 1 and 3,
-    pub status_uplink: u8,
+    pub status_uplink: StatusUplink,
     /// Conditional See note 2,
     pub status_uplink_dependent_information: Option<u64>,
+    pub status_uplink_dependent_information_len: Option<usize>,
 }
 
 #[allow(unreachable_code)] // TODO FIXME review, finalize and remove this
@@ -33,23 +34,34 @@ impl UMmStatus {
         expect_pdu_type!(pdu_type, MmPduTypeUl::UMmStatus)?;
         
         // Type1
-        let status_uplink = buffer.read_field(6, "status_uplink")? as u8;
-        // Conditional
-        unimplemented!(); let status_uplink_dependent_information = if true { Some(0) } else { None };
+        let val = buffer.read_field(6, "status_uplink")?;
+        let result = StatusUplink::try_from(val);
+        let status_uplink = match result {
+            Ok(x) => x,
+            Err(_) => return Err(PduParseErr::InvalidValue{field: "status_uplink", value: val})
+        };
 
-        // obit designates presence of any further type2, type3 or type4 fields
-        let mut obit = delimiters::read_obit(buffer)?;
+        // // obit designates presence of any further type2, type3 or type4 fields
+        // let mut obit = delimiters::read_obit(buffer)?;
 
+        // // Read trailing obit (if not previously encountered)
+        // obit = if obit { buffer.read_field(1, "trailing_obit")? == 1 } else { obit };
+        // if obit {
+        //     return Err(PduParseErr::InvalidTrailingMbitValue);
+        // }
 
-        // Read trailing obit (if not previously encountered)
-        obit = if obit { buffer.read_field(1, "trailing_obit")? == 1 } else { obit };
-        if obit {
-            return Err(PduParseErr::InvalidTrailingMbitValue);
-        }
+        // We'll just get the remainder of this frame
+        let bits_left = buffer.get_len_remaining();
+        let status_uplink_dependent_information = if bits_left > 0 {
+            Some(buffer.read_field(bits_left, "status_uplink_dependent_information")?)
+        } else {
+            None
+        };
 
         Ok(UMmStatus { 
             status_uplink, 
-            status_uplink_dependent_information
+            status_uplink_dependent_information,
+            status_uplink_dependent_information_len: if bits_left > 0 { Some(bits_left) } else { None },
         })
     }
 
@@ -61,11 +73,12 @@ impl UMmStatus {
         buffer.write_bits(self.status_uplink as u64, 6);
         // Conditional
         if let Some(ref value) = self.status_uplink_dependent_information {
-            unimplemented!();
-            buffer.write_bits(*value, 999);
+            // Unwrap should succeed as field must be present when optional status_uplink_dependent_information is present
+            buffer.write_bits(*value, self.status_uplink_dependent_information_len.unwrap());
         }
+
         // Write terminating m-bit
-        delimiters::write_mbit(buffer, 0);
+        // delimiters::write_mbit(buffer, 0);
         Ok(())
     }
 }
@@ -76,5 +89,34 @@ impl fmt::Display for UMmStatus {
             self.status_uplink,
             self.status_uplink_dependent_information,
         )
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use crate::common::debug;
+
+    use super::*;
+
+    #[test]
+    fn test_u_mm_status() {
+        
+        // Motorola MTH800. Hard to reproduce, but was emitted when EnergySavingMode is supplied in Location update but
+        // the downlink response did not acknowledge it by setting the EnergySavingInformation
+        debug::setup_logging_verbose();
+        let test_vec = "00110000010010";
+        let mut buf_in = BitBuffer::from_bitstr(test_vec);
+        let pdu = UMmStatus::from_bitbuf(&mut buf_in).expect("Failed parsing");
+
+        tracing::info!("Parsed: {:?}", pdu);
+        tracing::info!("Buf at end: {}", buf_in.dump_bin());
+        
+        assert!(buf_in.get_len_remaining() == 0, "Buffer not fully consumed");
+
+        let mut buf_out = BitBuffer::new_autoexpand(32);
+        pdu.to_bitbuf(&mut buf_out).unwrap();
+        tracing::info!("Serialized: {}", buf_out.dump_bin());
+        assert_eq!(buf_out.to_bitstr(), test_vec);
     }
 }

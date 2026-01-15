@@ -62,7 +62,7 @@ impl MmClientMgr {
 
     /// Registers a fresh state for a client, based on ssi
     /// If client is already registered, previous state is discarded. 
-    pub fn register_client(&mut self, issi: u32, attached: bool) -> Result <bool, ClientMgrErr> {
+    pub fn try_register_client(&mut self, issi: u32, attached: bool) -> Result <bool, ClientMgrErr> {
         
         if !is_individual(issi) {
             return Err(ClientMgrErr::IssiInGroupRange { issi });

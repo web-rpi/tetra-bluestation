@@ -3,7 +3,8 @@ use core::fmt;
 use crate::common::pdu_parse_error::PduParseErr;
 use crate::common::bitbuffer::BitBuffer;
 use crate::common::typed_pdu_fields::*;
-use crate::entities::mm::enums::mm_location_update_type::MmLocationUpdateType;
+use crate::entities::mm::enums::energy_saving_mode::EnergySavingMode;
+use crate::entities::mm::enums::location_update_type::LocationUpdateType;
 use crate::entities::mm::fields::group_identity_location_demand::GroupIdentityLocationDemand;
 use crate::expect_pdu_type;
 use crate::entities::mm::enums::mm_pdu_type_ul::MmPduTypeUl;
@@ -19,7 +20,7 @@ use crate::entities::mm::enums::type34_elem_id_ul::MmType34ElemIdUl;
 #[derive(Debug)]
 pub struct ULocationUpdateDemand {
     /// Type1, 3 bits, Location update type
-    pub location_update_type: MmLocationUpdateType,
+    pub location_update_type: LocationUpdateType,
     /// Type1, 1 bits, Request to append LA
     pub request_to_append_la: bool,
     /// Type1, 1 bits, Cipher control
@@ -29,7 +30,7 @@ pub struct ULocationUpdateDemand {
     /// Type2, 24 bits, See note 2,
     pub class_of_ms: Option<u64>,
     /// Type2, 3 bits, Energy saving mode
-    pub energy_saving_mode: Option<u64>,
+    pub energy_saving_mode: Option<EnergySavingMode>,
     /// Type2, LA information
     pub la_information: Option<u64>,
     /// Type2, 24 bits, ISSI of the MS,
@@ -58,13 +59,11 @@ impl ULocationUpdateDemand {
         
         // Type1
         let val: u64 = buffer.read_field(3, "location_update_type")?;
-        let result = MmLocationUpdateType::try_from(val);
+        let result = LocationUpdateType::try_from(val);
         let location_update_type = match result {
             Ok(x) => x,
             Err(_) => return Err(PduParseErr::InvalidValue{field: "location_update_type", value: val})
         };
-
-
 
         // Type1
         let request_to_append_la = buffer.read_field(1, "request_to_append_la")? != 0;
@@ -83,7 +82,11 @@ impl ULocationUpdateDemand {
         // Type2
         let class_of_ms = typed::parse_type2_generic(obit, buffer, 24, "class_of_ms")?;
         // Type2
-        let energy_saving_mode = typed::parse_type2_generic(obit, buffer, 3, "energy_saving_mode")?;
+        let val = typed::parse_type2_generic(obit, buffer, 3, "energy_saving_mode")?;
+        let energy_saving_mode = match val {
+            Some(v) => Some(EnergySavingMode::try_from(v).unwrap()), // Never fails
+            None => None
+        };
         // Type2
         let la_information = typed::parse_type2_generic(obit, buffer, 15, "la_information")?;
         let la_information = match la_information {
@@ -163,7 +166,7 @@ impl ULocationUpdateDemand {
         typed::write_type2_generic(obit, buffer, self.class_of_ms, 24);
 
         // Type2
-        typed::write_type2_generic(obit, buffer, self.energy_saving_mode, 3);
+        typed::write_type2_generic(obit, buffer, self.energy_saving_mode.map(|esm| esm.into()), 3);
 
         // Type2
         let la_and_zero_bit = if let Some(la) = self.la_information {
@@ -234,7 +237,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_u_location_update_demand_with_group_identity_location_demand() {
+    fn test_u_location_update_demand_with_gild() {
         
         // Example of nested type3 struct that embeds another type4
         // Parsing group_identity_location_demand: 001000000110001001001010000001000000000^1001100000111000001110000000010010000000101000000000000000000000001101000
@@ -253,6 +256,35 @@ mod tests {
 
         debug::setup_logging_verbose();
         let test_vec = "0010000001100010010010100000010000000001001100000111000001110000000010010000000101000000000000000000000001101000";
+        let mut buf_in = BitBuffer::from_bitstr(test_vec);
+        let pdu = ULocationUpdateDemand::from_bitbuf(&mut buf_in).expect("Failed parsing");
+
+        tracing::info!("Parsed: {:?}", pdu);
+        tracing::info!("Buf at end: {}", buf_in.dump_bin());
+
+        let mut buf_out = BitBuffer::new_autoexpand(32);
+        pdu.to_bitbuf(&mut buf_out).unwrap();
+        tracing::info!("Serialized: {}", buf_out.dump_bin());
+        assert_eq!(buf_out.to_bitstr(), test_vec);
+
+        assert!(buf_in.get_len_remaining() == 0, "Buffer not fully consumed");
+        let gild = pdu.group_identity_location_demand.unwrap();
+        assert_eq!(gild.group_identity_attach_detach_mode, 0);
+        let gild_giu = gild.group_identity_uplink.unwrap();
+        assert_eq!(gild_giu.len(), 1);
+        let giu0 = &gild_giu[0];
+        assert_eq!(giu0.gssi, Some(26));
+    }
+
+
+    #[test]
+    fn test_u_location_update_demand_with_gild_and_esm() {
+        
+        // Vec from moto upon registration
+        // Contains optional energy_saving_mode and group_identity_location_demand
+
+        debug::setup_logging_verbose();
+        let test_vec = "0010000001100010010010100000010000010010001001100000111000001110000000010010000000101000000000000000000000001101000";
         let mut buf_in = BitBuffer::from_bitstr(test_vec);
         let pdu = ULocationUpdateDemand::from_bitbuf(&mut buf_in).expect("Failed parsing");
 
