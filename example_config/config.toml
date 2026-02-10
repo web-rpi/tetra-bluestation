@@ -34,10 +34,10 @@ ppm_err = 0.0                       # Adjust if your SDR has a non-negligible tu
 # [phy_io.soapysdr.iocfg_limesdr]
 # rx_ant = "LNAL"
 # tx_ant = "BAND1"
-# rx_gain_lna = 20.0
-# rx_gain_tia = 10.0
+# rx_gain_lna = 18.0
+# rx_gain_tia = 6.0
 # rx_gain_pga = 10.0
-# tx_gain_pad = 52.0
+# tx_gain_pad = 18.0
 # tx_gain_iamp = 3.0
 
 # Sane defaults for LimeSDR Mini v2
@@ -46,9 +46,9 @@ ppm_err = 0.0                       # Adjust if your SDR has a non-negligible tu
 # tx_ant = "BAND2"
 # rx_gain_lna = 18.0
 # rx_gain_tia = 6.0
-# rx_gain_pga = 0.0
-# tx_gain_pad = 30.0
-# tx_gain_iamp = 6.0
+# rx_gain_pga = 10.0
+# tx_gain_pad = 18.0
+# tx_gain_iamp = 3.0
 
 # Sane defaults for SXceiver
 # [phy_io.soapysdr.iocfg_sxceiver]

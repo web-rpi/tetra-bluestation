@@ -1,17 +1,36 @@
-[package]
-name = "tetra-bluestation"
-version = "0.2.5"
+[workspace]
+resolver = "2"
+
+members = [
+    # Core libraries
+    "crates/tetra-core",
+    "crates/tetra-saps",
+    "crates/tetra-config",
+    "crates/tetra-pdus",
+    "crates/tetra-entities",
+    
+    # Binaries
+    "bins/bluestation-bs",
+    "bins/pdu-tool",
+    "bins/net-tnmm-test",
+    "bins/net-tnmm-test-quic"
+]
+
+[workspace.package]
+version = "0.3.4"
 edition = "2024"
+authors = ["Wouter Bokslag / Midnight Blue"]
+license = "MIT"
 
-[[bin]]
-name = "tetra-bluestation"
-path = "src/main.rs"
+[workspace.dependencies]
+# Internal crates
+tetra-core = { path = "crates/tetra-core" }
+tetra-config = { path = "crates/tetra-config" }
+tetra-saps = { path = "crates/tetra-saps" }
+tetra-pdus = { path = "crates/tetra-pdus" }
+tetra-entities = { path = "crates/tetra-entities" }
 
-[[bin]]
-name = "tool"
-path = "src/tool.rs"
-
-[dependencies]
+# External dependencies
 as-any = "0.3.2"
 num = "0.4.3"
 num-complex = "0.4.6"
