@@ -1344,11 +1344,19 @@ impl UmacBs {
             CallControl::Close(_, _) => {
                 self.rx_control_circuit_close(queue, prim);
             }
-            // LocalCall* and NetworkCall* are for CMCE ↔ Brew, not UMAC
-            CallControl::LocalCallStart { .. }
-            | CallControl::LocalCallTxStopped { .. }
-            | CallControl::LocalCallEnd { .. }
-            | CallControl::NetworkCallStart { .. }
+            // LocalCall* are also used to drive traffic→signalling transitions during hangtime.
+            CallControl::LocalCallTxStopped { ts, .. } => {
+                self.channel_scheduler.set_hangtime(ts, true);
+            }
+            CallControl::LocalCallStart { ts, .. } => {
+                self.channel_scheduler.set_hangtime(ts, false);
+            }
+            CallControl::LocalCallEnd { ts, .. } => {
+                self.channel_scheduler.set_hangtime(ts, false);
+            }
+
+            // NetworkCall* are for CMCE ↔ Brew, not UMAC (for now)
+            CallControl::NetworkCallStart { .. }
             | CallControl::NetworkCallReady { .. }
             | CallControl::NetworkCallEnd { .. } => {
                 tracing::trace!("rx_control: ignoring CMCE-Brew notification (not for UMAC)");

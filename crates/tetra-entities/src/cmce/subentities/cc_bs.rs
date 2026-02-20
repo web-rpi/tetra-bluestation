@@ -764,6 +764,15 @@ impl CcBsSubentity {
                 Self::signal_umac_circuit_close(queue, circuit, self.dltime);
             }
 
+            // Ensure UMAC clears any hangtime override for this slot even if the circuit close is delayed.
+            queue.push_back(SapMsg {
+                sap: Sap::Control,
+                src: TetraEntity::Cmce,
+                dest: TetraEntity::Umac,
+                dltime: self.dltime,
+                msg: SapMsgInner::CmceCallControl(CallControl::LocalCallEnd { call_id, ts }),
+            });
+
             self.release_timeslot(ts);
 
             // Notify Brew only for local calls
@@ -896,6 +905,16 @@ impl CcBsSubentity {
         let msg = Self::build_sapmsg_stealing(sdu, self.dltime, dest_addr, ts);
         queue.push_back(msg);
 
+        // Notify UMAC to enter hangtime signalling mode on this traffic timeslot.
+        // This stops downlink TCH fill frames (zeros) and enables UL CommonAndAssigned so MS can request the floor.
+        queue.push_back(SapMsg {
+            sap: Sap::Control,
+            src: TetraEntity::Cmce,
+            dest: TetraEntity::Umac,
+            dltime: self.dltime,
+            msg: SapMsgInner::CmceCallControl(CallControl::LocalCallTxStopped { call_id, ts }),
+        });
+
         // Notify Brew to stop forwarding audio for local calls
         if self.config.config().brew.is_some() {
             if is_local {
@@ -979,6 +998,20 @@ impl CcBsSubentity {
 
         let msg = Self::build_sapmsg_stealing(sdu, self.dltime, dest_addr, ts);
         queue.push_back(msg);
+
+        // Notify UMAC to resume traffic mode (exit hangtime) for this timeslot.
+        queue.push_back(SapMsg {
+            sap: Sap::Control,
+            src: TetraEntity::Cmce,
+            dest: TetraEntity::Umac,
+            dltime: self.dltime,
+            msg: SapMsgInner::CmceCallControl(CallControl::LocalCallStart {
+                call_id,
+                source_issi: requesting_party.ssi,
+                dest_gssi: dest_addr.ssi,
+                ts,
+            }),
+        });
 
         // Notify Brew only for local calls (speaker change = new LocalCallStart for new speaker)
         if self.config.config().brew.is_some() {
