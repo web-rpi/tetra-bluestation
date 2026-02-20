@@ -167,7 +167,9 @@ impl StatusDownlink {
 }
 
 impl From<StatusDownlink> for u64 {
-    fn from(e: StatusDownlink) -> Self { e.into_raw() }
+    fn from(e: StatusDownlink) -> Self {
+        e.into_raw()
+    }
 }
 
 impl core::fmt::Display for StatusDownlink {

@@ -36,7 +36,9 @@ impl BasicSlotgrantGrantingDelay {
 }
 
 impl From<BasicSlotgrantGrantingDelay> for u64 {
-    fn from(e: BasicSlotgrantGrantingDelay) -> Self { e.into_raw() }
+    fn from(e: BasicSlotgrantGrantingDelay) -> Self {
+        e.into_raw()
+    }
 }
 
 impl core::fmt::Display for BasicSlotgrantGrantingDelay {

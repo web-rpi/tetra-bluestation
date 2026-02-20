@@ -59,7 +59,9 @@ impl MmPduTypeUl {
 }
 
 impl From<MmPduTypeUl> for u64 {
-    fn from(e: MmPduTypeUl) -> Self { e.into_raw() }
+    fn from(e: MmPduTypeUl) -> Self {
+        e.into_raw()
+    }
 }
 
 impl core::fmt::Display for MmPduTypeUl {

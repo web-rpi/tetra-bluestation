@@ -36,7 +36,9 @@ impl ChanAllocType {
 }
 
 impl From<ChanAllocType> for u64 {
-    fn from(e: ChanAllocType) -> Self { e.into_raw() }
+    fn from(e: ChanAllocType) -> Self {
+        e.into_raw()
+    }
 }
 
 impl core::fmt::Display for ChanAllocType {

@@ -44,7 +44,9 @@ impl MmType34ElemIdUl {
 }
 
 impl From<MmType34ElemIdUl> for u64 {
-    fn from(e: MmType34ElemIdUl) -> Self { e.into_raw() }
+    fn from(e: MmType34ElemIdUl) -> Self {
+        e.into_raw()
+    }
 }
 
 impl core::fmt::Display for MmType34ElemIdUl {

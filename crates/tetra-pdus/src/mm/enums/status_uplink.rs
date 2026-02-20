@@ -167,7 +167,9 @@ impl StatusUplink {
 }
 
 impl From<StatusUplink> for u64 {
-    fn from(e: StatusUplink) -> Self { e.into_raw() }
+    fn from(e: StatusUplink) -> Self {
+        e.into_raw()
+    }
 }
 
 impl core::fmt::Display for StatusUplink {

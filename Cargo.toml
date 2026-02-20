@@ -17,7 +17,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.3.4"
+version = "0.4.1"
 edition = "2024"
 authors = ["Wouter Bokslag / Midnight Blue"]
 license = "MIT"
@@ -44,3 +44,6 @@ tracing = { version = "0.1.41", features = ["std"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "time"] }
 tracing-appender = "0.2.4"
 crossbeam-channel = "0.5"
+tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
+uuid = { version = "1", features = ["v4"] }
+ctrlc = "3"

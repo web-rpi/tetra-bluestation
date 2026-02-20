@@ -1,11 +1,12 @@
 use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use tetra_config::SharedConfig;
 use tetra_core::{TdmaTime, tetra_entities::TetraEntity};
 use tetra_saps::SapMsg;
 
 use crate::TetraEntityTrait;
-
 
 #[derive(Default)]
 pub enum MessagePrio {
@@ -20,9 +21,7 @@ pub struct MessageQueue {
 
 impl MessageQueue {
     pub fn new() -> Self {
-        Self {
-            messages: VecDeque::new(),
-        }
+        Self { messages: VecDeque::new() }
     }
 
     pub fn push_back(&mut self, message: SapMsg) {
@@ -54,20 +53,17 @@ pub struct MessageRouter {
     entities: HashMap<TetraEntity, Box<dyn TetraEntityTrait>>,
     msg_queue: MessageQueue,
 
-    /// The current TDMA time, if applicable. 
+    /// The current TDMA time, if applicable.
     /// For Bs mode, this is always available
     /// For Ms/Mon mode, it is recovered from a received SYNC frame and communicated in a different way
     ts: TdmaTime,
 }
 
-
 impl MessageRouter {
     pub fn new(config: SharedConfig) -> Self {
         Self {
             entities: HashMap::new(),
-            msg_queue: MessageQueue {
-                messages: VecDeque::new(),
-            },
+            msg_queue: MessageQueue { messages: VecDeque::new() },
             _config: config,
             ts: TdmaTime::default(),
         }
@@ -75,7 +71,7 @@ impl MessageRouter {
 
     /// For BS mode, sets global TDMA time
     /// Incremented each tick and passed to entities in tick() function
-    pub fn set_dl_time(&mut self, ts: TdmaTime) {        
+    pub fn set_dl_time(&mut self, ts: TdmaTime) {
         self.ts = ts;
     }
 
@@ -91,16 +87,24 @@ impl MessageRouter {
     }
 
     pub fn submit_message(&mut self, message: SapMsg) {
-        tracing::debug!("submit_message {:?}: {:?} -> {:?}", message.get_sap(), message.get_source(), message.get_dest());
+        tracing::debug!(
+            "submit_message {:?}: {:?} -> {:?}",
+            message.get_sap(),
+            message.get_source(),
+            message.get_dest()
+        );
         self.msg_queue.push_back(message);
     }
 
-    pub fn deliver_message(&mut self) {  
-
+    pub fn deliver_message(&mut self) {
         let message = self.msg_queue.pop_front();
         if let Some(message) = message {
-
-            tracing::debug!("deliver_message: got {:?}: {:?} -> {:?}", message.get_sap(), message.get_source(), message.get_dest());
+            tracing::debug!(
+                "deliver_message: got {:?}: {:?} -> {:?}",
+                message.get_sap(),
+                message.get_source(),
+                message.get_dest()
+            );
 
             // Determine the destination entity
             let dest = message.get_dest();
@@ -109,9 +113,15 @@ impl MessageRouter {
             if let Some(entity) = self.entities.get_mut(dest) {
                 entity.rx_prim(&mut self.msg_queue, message);
             } else {
-                tracing::warn!("deliver_message: entity {:?} not found for {:?}: {:?} -> {:?}", dest, message.get_sap(), message.get_source(), message.get_dest());
+                tracing::warn!(
+                    "deliver_message: entity {:?} not found for {:?}: {:?} -> {:?}",
+                    dest,
+                    message.get_sap(),
+                    message.get_source(),
+                    message.get_dest()
+                );
             }
-        } 
+        }
     }
 
     pub fn deliver_all_messages(&mut self) {
@@ -124,29 +134,22 @@ impl MessageRouter {
         self.msg_queue.messages.len()
     }
 
-
-
     pub fn tick_start(&mut self) {
-        
         // tracing::info!("--- tick dl {} ul {} txdl {} ----------------------------",
         //     self.ts, self.ts.add_timeslots(-2), self.ts.add_timeslots(MACSCHED_TX_AHEAD as i32));
         tracing::info!("--- tick dl {} ----------------------------", self.ts);
-        
+
         // Call tick on all entities
         for entity in self.entities.values_mut() {
             entity.tick_start(&mut self.msg_queue, self.ts);
         }
     }
 
-
-
-
     /// Executes all end-of-tick functions:
     /// - LLC sends down all outstanding BL-ACKs
     /// - UMAC finalizes any resources for ts and sends down to LMAC
-    /// 
+    ///
     pub fn tick_end(&mut self) {
-
         tracing::debug!("############################ end-of-tick ############################");
 
         // Llc should send down outstanding BL-ACKs
@@ -179,24 +182,32 @@ impl MessageRouter {
         self.ts = self.ts.add_timeslots(1);
     }
 
-
     /// Runs the full stack either forever or for a specified number of ticks.
-    pub fn run_stack(&mut self, num_ticks: Option<usize>) {
-        
+    /// If `running` is provided, the loop will exit when the flag is set to false
+    /// (e.g. by a Ctrl+C signal handler), allowing entities to be dropped cleanly.
+    pub fn run_stack(&mut self, num_ticks: Option<usize>, running: Option<Arc<AtomicBool>>) {
         let mut ticks: usize = 0;
 
         loop {
+            // Check if we've been asked to stop (e.g. Ctrl+C)
+            if let Some(ref flag) = running {
+                if !flag.load(Ordering::Relaxed) {
+                    eprintln!("\n[INFO] Shutting down gracefully...");
+                    break;
+                }
+            }
+
             // Send tick_start event
             self.tick_start();
-            
+
             // Deliver messages until queue empty
-            while self.get_msgqueue_len() > 0{
+            while self.get_msgqueue_len() > 0 {
                 self.deliver_all_messages();
             }
 
             // Send tick_end event and process final messages
             self.tick_end();
-            
+
             // Check if we should stop
             ticks += 1;
             if let Some(num_ticks) = num_ticks {

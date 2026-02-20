@@ -95,7 +95,9 @@ impl SdsProtocolId {
 }
 
 impl From<SdsProtocolId> for u64 {
-    fn from(e: SdsProtocolId) -> Self { e.into_raw() }
+    fn from(e: SdsProtocolId) -> Self {
+        e.into_raw()
+    }
 }
 
 impl core::fmt::Display for SdsProtocolId {

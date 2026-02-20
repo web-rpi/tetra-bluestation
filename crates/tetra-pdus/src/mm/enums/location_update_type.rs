@@ -48,7 +48,9 @@ impl LocationUpdateType {
 }
 
 impl From<LocationUpdateType> for u64 {
-    fn from(e: LocationUpdateType) -> Self { e.into_raw() }
+    fn from(e: LocationUpdateType) -> Self {
+        e.into_raw()
+    }
 }
 
 impl core::fmt::Display for LocationUpdateType {

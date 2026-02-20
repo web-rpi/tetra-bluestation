@@ -1,8 +1,8 @@
+use crate::mle::components::mle_router::MleRouter;
+use crate::{MessageQueue, TetraEntityTrait};
 use tetra_config::SharedConfig;
 use tetra_core::tetra_entities::TetraEntity;
 use tetra_core::{BitBuffer, Sap, unimplemented_log};
-use crate::mle::components::mle_router::MleRouter;
-use crate::{MessageQueue, TetraEntityTrait};
 use tetra_saps::lcmc::LcmcMleUnitdataInd;
 use tetra_saps::lmm::LmmMleUnitdataInd;
 use tetra_saps::ltpd::LtpdMleUnitdataInd;
@@ -14,7 +14,6 @@ use tetra_pdus::mle::enums::mle_protocol_discriminator::MleProtocolDiscriminator
 use tetra_pdus::mle::pdus::d_mle_sync::DMleSync;
 use tetra_pdus::mle::pdus::d_mle_sysinfo::DMleSysinfo;
 
-
 pub struct Mle {
     // config: Option<SharedConfig>,
     self_component: TetraEntity,
@@ -25,7 +24,7 @@ pub struct Mle {
 
 impl Mle {
     pub fn new(config: SharedConfig) -> Self {
-        Self { 
+        Self {
             self_component: TetraEntity::Mle,
             config,
 
@@ -34,14 +33,15 @@ impl Mle {
     }
 
     fn rx_tla_mle_pdu(&mut self, _queue: &mut MessageQueue, message: SapMsg) {
-        
         tracing::trace!("rx_tla_mle_pdu");
 
         // Extract tm_sdu from whatever primitive we have
         let tm_sdu = {
             match message.msg {
-                SapMsgInner::TlaTlDataIndBl(prim) => {prim.tl_sdu}
-                _ => { panic!(); }
+                SapMsgInner::TlaTlDataIndBl(prim) => prim.tl_sdu,
+                _ => {
+                    panic!();
+                }
             }
         };
         let Some(sdu) = tm_sdu else {
@@ -60,19 +60,34 @@ impl Mle {
         };
 
         match pdu_type {
-            MlePduTypeDl::DNewCell => { unimplemented_log!("DNewCell") }
-            MlePduTypeDl::DPrepareFail => { unimplemented_log!("DPrepareFail") }
-            MlePduTypeDl::DNwrkBroadcast => { unimplemented_log!("DNwrkBroadcast") }
-            MlePduTypeDl::DNwrkBroadcastExt => { unimplemented_log!("DNwrkBroadcastExt") } // TODO FIXME CHECK this option and assocaited int
-            MlePduTypeDl::DRestoreAck => { unimplemented_log!("DRestoreAck") }
-            MlePduTypeDl::DRestoreFail => { unimplemented_log!("DRestoreFail") }
-            MlePduTypeDl::DChannelResponse => { unimplemented_log!("DChannelResponse") }
-            MlePduTypeDl::ExtPdu => { unimplemented_log!("ExtPdu") }
+            MlePduTypeDl::DNewCell => {
+                unimplemented_log!("DNewCell")
+            }
+            MlePduTypeDl::DPrepareFail => {
+                unimplemented_log!("DPrepareFail")
+            }
+            MlePduTypeDl::DNwrkBroadcast => {
+                unimplemented_log!("DNwrkBroadcast")
+            }
+            MlePduTypeDl::DNwrkBroadcastExt => {
+                unimplemented_log!("DNwrkBroadcastExt")
+            } // TODO FIXME CHECK this option and assocaited int
+            MlePduTypeDl::DRestoreAck => {
+                unimplemented_log!("DRestoreAck")
+            }
+            MlePduTypeDl::DRestoreFail => {
+                unimplemented_log!("DRestoreFail")
+            }
+            MlePduTypeDl::DChannelResponse => {
+                unimplemented_log!("DChannelResponse")
+            }
+            MlePduTypeDl::ExtPdu => {
+                unimplemented_log!("ExtPdu")
+            }
         }
     }
 
     fn rx_tla_prim(&mut self, queue: &mut MessageQueue, message: SapMsg) {
-        
         tracing::trace!("rx_tla_prim");
         match message.msg {
             SapMsgInner::TlaTlDataIndBl(_) => {
@@ -81,14 +96,17 @@ impl Mle {
             SapMsgInner::TlaTlUnitdataIndBl(_) => {
                 self.rx_tla_unitdata_ind_bl(queue, message);
             }
-            _ => { panic!(); }
+            _ => {
+                panic!();
+            }
         }
     }
 
     fn rx_tla_data_ind_bl(&mut self, queue: &mut MessageQueue, mut message: SapMsg) {
-
         // Take ownership of bitbuf and read protocol discriminator
-        let SapMsgInner::TlaTlDataIndBl(prim) = &mut message.msg else { panic!() };
+        let SapMsgInner::TlaTlDataIndBl(prim) = &mut message.msg else {
+            panic!()
+        };
         let Some(mut sdu) = prim.tl_sdu.take() else { panic!("no tl_sdu") };
         assert!(sdu.get_pos() == 0); // We should be at the start of the MAC PDU
         let Some(bits) = sdu.read_bits(3) else {
@@ -103,8 +121,10 @@ impl Mle {
         // Dispatch to appropriate component (or to self if for MLE)
         match pdu_type {
             MleProtocolDiscriminator::Mm => {
-                let handle = self.router.create_handle(prim.main_address, prim.link_id, prim.endpoint_id, message.dltime);
-                let m = LmmMleUnitdataInd{ 
+                let handle = self
+                    .router
+                    .create_handle(prim.main_address, prim.link_id, prim.endpoint_id, message.dltime);
+                let m = LmmMleUnitdataInd {
                     sdu,
                     handle,
                     received_address: prim.main_address,
@@ -119,15 +139,17 @@ impl Mle {
                 queue.push_back(msg);
             }
             MleProtocolDiscriminator::Cmce => {
-                let handle = self.router.create_handle(prim.main_address, prim.link_id, prim.endpoint_id, message.dltime);
-                let m = LcmcMleUnitdataInd{ 
+                let handle = self
+                    .router
+                    .create_handle(prim.main_address, prim.link_id, prim.endpoint_id, message.dltime);
+                let m = LcmcMleUnitdataInd {
                     sdu,
                     handle,
                     received_tetra_address: prim.main_address,
                     endpoint_id: prim.endpoint_id,
                     link_id: prim.link_id,
                     chan_change_resp_req: false, // TODO FIXME
-                    chan_change_handle: None, // TODO FIXME
+                    chan_change_handle: None,    // TODO FIXME
                 };
                 let msg = SapMsg {
                     sap: Sap::LcmcSap,
@@ -139,13 +161,13 @@ impl Mle {
                 queue.push_back(msg);
             }
             MleProtocolDiscriminator::Sndcp => {
-                let m = LtpdMleUnitdataInd{ 
+                let m = LtpdMleUnitdataInd {
                     sdu,
                     endpoint_id: prim.endpoint_id,
                     link_id: prim.link_id,
                     received_tetra_address: prim.main_address,
                     chan_change_resp_req: false, // TODO FIXME
-                    chan_change_handle: None, // TODO FIXME
+                    chan_change_handle: None,    // TODO FIXME
                 };
                 let msg = SapMsg {
                     sap: Sap::LcmcSap,
@@ -165,21 +187,20 @@ impl Mle {
         }
     }
 
-
     fn rx_tla_unitdata_ind_bl(&mut self, queue: &mut MessageQueue, mut message: SapMsg) {
-
-        // TODO FIXME NOTE: This function is the same as the rx_tla_data_ind_bl. 
+        // TODO FIXME NOTE: This function is the same as the rx_tla_data_ind_bl.
         // A cursory glance at the spec does not make clear the difference, except for the relation with
-        // either udata or data at the llc. 
-        // It seems only the SNDCP uses unacknowledged TL-UNITDATA. 
+        // either udata or data at the llc.
+        // It seems only the SNDCP uses unacknowledged TL-UNITDATA.
         // We should investigate the exact differences and account for them
-        
-        
+
         // Take ownership of bitbuf and read protocol discriminator
-        let SapMsgInner::TlaTlUnitdataIndBl(prim) = &mut message.msg else { panic!() };
+        let SapMsgInner::TlaTlUnitdataIndBl(prim) = &mut message.msg else {
+            panic!()
+        };
         let Some(mut sdu) = prim.tl_sdu.take() else { panic!("no tl_sdu") };
         assert!(sdu.get_pos() == 0); // We should be at the start of the MAC PDU
-        
+
         let Some(bits) = sdu.read_bits(3) else {
             tracing::warn!("insufficient bits: {}", sdu.dump_bin());
             return;
@@ -193,8 +214,10 @@ impl Mle {
         match pdu_type {
             MleProtocolDiscriminator::Mm => {
                 tracing::warn!("TM-UNITDATA for MM?"); // todo fixme find if ever used
-                let handle = self.router.create_handle(prim.main_address, prim.link_id, prim.endpoint_id, message.dltime);
-                let m = LmmMleUnitdataInd{ 
+                let handle = self
+                    .router
+                    .create_handle(prim.main_address, prim.link_id, prim.endpoint_id, message.dltime);
+                let m = LmmMleUnitdataInd {
                     sdu,
                     handle,
                     received_address: prim.main_address,
@@ -210,15 +233,17 @@ impl Mle {
             }
             MleProtocolDiscriminator::Cmce => {
                 tracing::warn!("TM-UNITDATA for MM?"); // todo fixme find if ever used
-                let handle = self.router.create_handle(prim.main_address, prim.link_id, prim.endpoint_id, message.dltime);
-                let m = LcmcMleUnitdataInd{ 
+                let handle = self
+                    .router
+                    .create_handle(prim.main_address, prim.link_id, prim.endpoint_id, message.dltime);
+                let m = LcmcMleUnitdataInd {
                     sdu,
                     handle,
                     endpoint_id: prim.endpoint_id,
                     link_id: prim.link_id,
                     received_tetra_address: prim.main_address,
                     chan_change_resp_req: false, // TODO FIXME
-                    chan_change_handle: None, // TODO FIXME
+                    chan_change_handle: None,    // TODO FIXME
                 };
                 let msg = SapMsg {
                     sap: Sap::LcmcSap,
@@ -230,13 +255,13 @@ impl Mle {
                 queue.push_back(msg);
             }
             MleProtocolDiscriminator::Sndcp => {
-                let m = LtpdMleUnitdataInd{ 
+                let m = LtpdMleUnitdataInd {
                     sdu,
                     endpoint_id: prim.endpoint_id,
                     link_id: prim.link_id,
                     received_tetra_address: prim.main_address,
                     chan_change_resp_req: false, // TODO FIXME
-                    chan_change_handle: None, // TODO FIXME
+                    chan_change_handle: None,    // TODO FIXME
                 };
                 let msg = SapMsg {
                     sap: Sap::LcmcSap,
@@ -265,14 +290,18 @@ impl Mle {
             SapMsgInner::TlmbSyncInd(_) => {
                 self.rx_tlmb_tl_sync_ind(queue, message);
             }
-            _ => { panic!(); }
+            _ => {
+                panic!();
+            }
         }
     }
 
     pub fn rx_tlmb_tl_sysinfo_ind(&self, _queue: &mut MessageQueue, mut message: SapMsg) {
         tracing::trace!("rx_tlmb_tl_sysinfo_ind");
-        
-        let SapMsgInner::TlmbSysinfoInd(inner) = &mut message.msg else {panic!()};
+
+        let SapMsgInner::TlmbSysinfoInd(inner) = &mut message.msg else {
+            panic!()
+        };
 
         // Parse the TL-SDU
         let _pdu = match DMleSysinfo::from_bitbuf(&mut inner.tl_sdu) {
@@ -302,7 +331,7 @@ impl Mle {
         //     || pdu.bs_service_details.circuit_mode_data_service != cfg.la_info.circuit_mode_data_service
         //     || pdu.bs_service_details.sndcp_service != cfg.la_info.sndcp_service
         //     || pdu.bs_service_details.aie_service != cfg.la_info.aie_service
-        //     || pdu.bs_service_details.advanced_link != cfg.la_info.advanced_link                
+        //     || pdu.bs_service_details.advanced_link != cfg.la_info.advanced_link
         // };
 
         // if need_global_state_update {
@@ -328,8 +357,10 @@ impl Mle {
 
     pub fn rx_tlmb_tl_sync_ind(&self, _queue: &mut MessageQueue, mut message: SapMsg) {
         tracing::trace!("rx_tlmb_tl_sync_ind");
-        
-        let SapMsgInner::TlmbSyncInd(inner) = &mut message.msg else {panic!()};
+
+        let SapMsgInner::TlmbSyncInd(inner) = &mut message.msg else {
+            panic!()
+        };
 
         // Parse the TL-SDU
         let _pdu = match DMleSync::from_bitbuf(&mut inner.tl_sdu) {
@@ -376,7 +407,7 @@ impl Mle {
         //                     mcc: cfg.la_info.mcc,
         //                     mnc: cfg.la_info.mnc,
         //                 }),
-        //                 ..Default::default()                        
+        //                 ..Default::default()
         //             }
         //         )
         //     };
@@ -386,7 +417,6 @@ impl Mle {
         // }
     }
 
-    
     fn rx_tlmc_prim(&mut self, _queue: &mut MessageQueue, _message: SapMsg) {
         tracing::trace!("rx_tlmc_prim");
         unimplemented!("rx_tlmc_prim");
@@ -399,7 +429,9 @@ impl Mle {
 
     fn rx_lmm_mle_unitdata_req(&mut self, queue: &mut MessageQueue, mut message: SapMsg) {
         tracing::trace!("rx_lmm_mle_unitdata_req");
-        let SapMsgInner::LmmMleUnitdataReq(prim) = &mut message.msg else {panic!()};
+        let SapMsgInner::LmmMleUnitdataReq(prim) = &mut message.msg else {
+            panic!()
+        };
 
         let mle_prot_discriminator = MleProtocolDiscriminator::Mm;
         let sdu_len = prim.sdu.get_len();
@@ -418,7 +450,7 @@ impl Mle {
             msg: SapMsgInner::TlaTlDataReqBl(TlaTlDataReqBl {
                 main_address: prim.address,
                 link_id: link,
-                endpoint_id: endpoint, 
+                endpoint_id: endpoint,
                 tl_sdu: pdu,
                 stealing_permission: false,
                 subscriber_class: 0, // TODO fixme
@@ -441,7 +473,7 @@ impl Mle {
             SapMsgInner::LmmMleUnitdataReq(_prim) => {
                 self.rx_lmm_mle_unitdata_req(queue, message);
             }
-            _ => panic!()
+            _ => panic!(),
         }
     }
 
@@ -455,10 +487,11 @@ impl Mle {
         // }
     }
 
-
     fn rx_lcmc_mle_unitdata_req(&mut self, queue: &mut MessageQueue, mut message: SapMsg) {
         tracing::trace!("rx_lcmc_mle_unitdata_req");
-        let SapMsgInner::LcmcMleUnitdataReq(prim) = &mut message.msg else {panic!()};
+        let SapMsgInner::LcmcMleUnitdataReq(prim) = &mut message.msg else {
+            panic!()
+        };
 
         let mle_prot_discriminator = MleProtocolDiscriminator::Cmce;
         let sdu_len = prim.sdu.get_len();
@@ -481,9 +514,9 @@ impl Mle {
             msg: SapMsgInner::TlaTlDataReqBl(TlaTlDataReqBl {
                 main_address: prim.main_address,
                 link_id: prim.link_id,
-                endpoint_id: prim.endpoint_id, 
+                endpoint_id: prim.endpoint_id,
                 tl_sdu: pdu,
-                stealing_permission: false,
+                stealing_permission: prim.stealing_permission,
                 subscriber_class: 0, // TODO fixme
                 fcs_flag: false,
                 air_interface_encryption: None,
@@ -504,20 +537,17 @@ impl Mle {
             SapMsgInner::LcmcMleUnitdataReq(_) => {
                 self.rx_lcmc_mle_unitdata_req(queue, message);
             }
-            _ => panic!()
+            _ => panic!(),
         }
     }
 }
 
-
 impl TetraEntityTrait for Mle {
-    
     fn entity(&self) -> TetraEntity {
         TetraEntity::Mle
     }
 
     fn rx_prim(&mut self, queue: &mut MessageQueue, message: SapMsg) {
-        
         tracing::debug!("rx_prim: {:?}", message);
         // tracing::debug!(ts=%message.dltime, "rx_prim: {:?}", message);
 

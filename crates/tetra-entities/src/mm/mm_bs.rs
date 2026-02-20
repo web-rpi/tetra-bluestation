@@ -1,7 +1,7 @@
+use crate::{MessageQueue, TetraEntityTrait};
 use tetra_config::SharedConfig;
 use tetra_core::tetra_entities::TetraEntity;
 use tetra_core::{BitBuffer, Sap, SsiType, TetraAddress, assert_warn, unimplemented_log};
-use crate::{MessageQueue, TetraEntityTrait};
 use tetra_saps::lmm::LmmMleUnitdataReq;
 use tetra_saps::{SapMsg, SapMsgInner};
 
@@ -21,8 +21,6 @@ use tetra_pdus::mm::pdus::u_itsi_detach::UItsiDetach;
 use tetra_pdus::mm::pdus::u_location_update_demand::ULocationUpdateDemand;
 use tetra_pdus::mm::pdus::u_mm_status::UMmStatus;
 
-
-
 pub struct MmBs {
     config: SharedConfig,
     pub client_mgr: MmClientMgr,
@@ -30,13 +28,18 @@ pub struct MmBs {
 
 impl MmBs {
     pub fn new(config: SharedConfig) -> Self {
-        Self { config, client_mgr: MmClientMgr::new() }
+        Self {
+            config,
+            client_mgr: MmClientMgr::new(),
+        }
     }
 
     fn rx_u_itsi_detach(&mut self, _queue: &mut MessageQueue, mut message: SapMsg) {
         tracing::trace!("rx_u_itsi_detach");
-        let SapMsgInner::LmmMleUnitdataInd(prim) = &mut message.msg else {panic!()};
-        
+        let SapMsgInner::LmmMleUnitdataInd(prim) = &mut message.msg else {
+            panic!()
+        };
+
         let pdu = match UItsiDetach::from_bitbuf(&mut prim.sdu) {
             Ok(pdu) => {
                 tracing::debug!("<- {:?}", pdu);
@@ -64,7 +67,9 @@ impl MmBs {
 
     fn rx_u_location_update_demand(&mut self, queue: &mut MessageQueue, mut message: SapMsg) {
         tracing::trace!("rx_location_update_demand");
-        let SapMsgInner::LmmMleUnitdataInd(prim) = &mut message.msg else {panic!()};
+        let SapMsgInner::LmmMleUnitdataInd(prim) = &mut message.msg else {
+            panic!()
+        };
 
         let pdu = match ULocationUpdateDemand::from_bitbuf(&mut prim.sdu) {
             Ok(pdu) => {
@@ -84,15 +89,15 @@ impl MmBs {
         }
 
         // Handle Energy Saving Mode request
-        // TODO FIXME this does not yet seem to be functional, and prevents the MS from remaining 
-        // properly registered. 
+        // TODO FIXME this does not yet seem to be functional, and prevents the MS from remaining
+        // properly registered.
         // let esi = if let Some(esm) = pdu.energy_saving_mode {
         //     if esm != EnergySavingMode::StayAlive {
         //         unimplemented_log!("Got req for EnergySavingMode {}, overriding with {}", esm, EnergySavingMode::StayAlive);
         //     }
         //     Some(EnergySavingInformation {
         //         energy_saving_mode: EnergySavingMode::StayAlive,
-        //         frame_number: None, 
+        //         frame_number: None,
         //         multiframe_number: None,
         //     })
         // } else {
@@ -103,7 +108,7 @@ impl MmBs {
         // Try to register the client
         let issi = prim.received_address.ssi;
         match self.client_mgr.try_register_client(issi, true) {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(e) => {
                 tracing::warn!("Failed registering roaming MS {}: {:?}", issi, e);
                 // unimplemented_log!("Handle failed registration of roaming MS");
@@ -149,37 +154,43 @@ impl MmBs {
         };
 
         // Convert pdu to bits
-        let pdu_len = 4+3+24+1+1+1; // Minimal lenght; may expand beyond this. 
+        let pdu_len = 4 + 3 + 24 + 1 + 1 + 1; // Minimal lenght; may expand beyond this. 
         let mut sdu = BitBuffer::new_autoexpand(pdu_len);
         pdu_response.to_bitbuf(&mut sdu).unwrap(); // we want to know when this happens
         sdu.seek(0);
         tracing::debug!("-> {} sdu {}", pdu_response, sdu.dump_bin());
 
         // Build and submit response prim
-        let addr = TetraAddress { encrypted: false, ssi_type: SsiType::Ssi, ssi: issi };
+        let addr = TetraAddress {
+            encrypted: false,
+            ssi_type: SsiType::Ssi,
+            ssi: issi,
+        };
         let msg = SapMsg {
             sap: Sap::LmmSap,
             src: TetraEntity::Mm,
             dest: TetraEntity::Mle,
             dltime: message.dltime,
-            msg: SapMsgInner::LmmMleUnitdataReq(LmmMleUnitdataReq{
+            msg: SapMsgInner::LmmMleUnitdataReq(LmmMleUnitdataReq {
                 sdu,
                 handle: prim.handle,
                 address: addr,
                 layer2service: 0,
                 stealing_permission: false,
-                stealing_repeats_flag: false, 
+                stealing_repeats_flag: false,
                 encryption_flag: false,
                 is_null_pdu: false,
-            })
+            }),
         };
-        queue.push_back(msg);        
+        queue.push_back(msg);
     }
 
     fn rx_u_mm_status(&mut self, queue: &mut MessageQueue, mut message: SapMsg) {
         tracing::trace!("rx_u_mm_status");
-        let SapMsgInner::LmmMleUnitdataInd(prim) = &mut message.msg else {panic!()};
-        
+        let SapMsgInner::LmmMleUnitdataInd(prim) = &mut message.msg else {
+            panic!()
+        };
+
         let pdu = match UMmStatus::from_bitbuf(&mut prim.sdu) {
             Ok(pdu) => {
                 tracing::debug!("<- {:?}", pdu);
@@ -193,24 +204,24 @@ impl MmBs {
 
         let handled = false; // Set to true for properly handled U-MM STATUS messages
         match pdu.status_uplink {
-            StatusUplink::ChangeOfEnergySavingModeRequest |
-            StatusUplink::ChangeOfEnergySavingModeResponse |
-            StatusUplink::DualWatchModeRequest |
-            StatusUplink::TerminatingDualWatchModeRequest |
-            StatusUplink::ChangeOfDualWatchModeResponse |
-            StatusUplink::StartOfDirectModeOperation |
-            StatusUplink::MsFrequencyBandsInformation |
-            StatusUplink::RequestToStartDmGatewayOperation |
-            StatusUplink::RequestToContinuedmGatewayOperation |
-            StatusUplink::RequestToStopDmGatewayOperation |
-            StatusUplink::RequestToAddDmMsAddresses |
-            StatusUplink::RequestToRemoveDmMsAddresses |
-            StatusUplink::RequestToReplaceDmMsAddresses |
-            StatusUplink::AcceptanceToRemovalOfDmMsAddresses |
-            StatusUplink::AcceptanceToChangeRegistrationLabel |
-            StatusUplink::AcceptanceToStopDmGatewayOperation => {
+            StatusUplink::ChangeOfEnergySavingModeRequest
+            | StatusUplink::ChangeOfEnergySavingModeResponse
+            | StatusUplink::DualWatchModeRequest
+            | StatusUplink::TerminatingDualWatchModeRequest
+            | StatusUplink::ChangeOfDualWatchModeResponse
+            | StatusUplink::StartOfDirectModeOperation
+            | StatusUplink::MsFrequencyBandsInformation
+            | StatusUplink::RequestToStartDmGatewayOperation
+            | StatusUplink::RequestToContinuedmGatewayOperation
+            | StatusUplink::RequestToStopDmGatewayOperation
+            | StatusUplink::RequestToAddDmMsAddresses
+            | StatusUplink::RequestToRemoveDmMsAddresses
+            | StatusUplink::RequestToReplaceDmMsAddresses
+            | StatusUplink::AcceptanceToRemovalOfDmMsAddresses
+            | StatusUplink::AcceptanceToChangeRegistrationLabel
+            | StatusUplink::AcceptanceToStopDmGatewayOperation => {
                 unimplemented_log!("{:?}", pdu.status_uplink)
-            },
+            }
             _ => {
                 assert_warn!(false, "Unrecognized UMmStatus type {:?}", pdu.status_uplink);
             }
@@ -221,10 +232,11 @@ impl MmBs {
             // Note that an MS is not required to really do anything with this message.
             let (sapmsg, debug_str) = make_ul_mm_pdu_function_not_supported(
                 prim.handle,
-                MmPduTypeUl::UMmStatus, 
+                MmPduTypeUl::UMmStatus,
                 Some((6, pdu.status_uplink.into())),
                 prim.received_address.ssi,
-                message.dltime);
+                message.dltime,
+            );
             tracing::debug!("-> {}", debug_str);
             queue.push_back(sapmsg);
         }
@@ -232,8 +244,10 @@ impl MmBs {
 
     fn rx_u_attach_detach_group_identity(&mut self, queue: &mut MessageQueue, mut message: SapMsg) {
         tracing::trace!("rx_u_attach_detach_group_identity");
-        let SapMsgInner::LmmMleUnitdataInd(prim) = &mut message.msg else {panic!()};
-        
+        let SapMsgInner::LmmMleUnitdataInd(prim) = &mut message.msg else {
+            panic!()
+        };
+
         let issi = prim.received_address.ssi;
         let pdu = match UAttachDetachGroupIdentity::from_bitbuf(&mut prim.sdu) {
             Ok(pdu) => {
@@ -255,7 +269,7 @@ impl MmBs {
         // If group_identity_attach_detach_mode == 1, we first detach all groups
         if pdu.group_identity_attach_detach_mode == true {
             match self.client_mgr.client_detach_all_groups(issi) {
-                Ok(_) => {},
+                Ok(_) => {}
                 Err(e) => {
                     tracing::warn!("Failed detaching all groups for MS {}: {:?}", issi, e);
                     return;
@@ -265,12 +279,12 @@ impl MmBs {
 
         // Try to attach to requested groups, and retrieve list of accepted GroupIdentityDownlink elements
         // We can unwrap since we did compat check earlier
-        let accepted_gid= self.try_attach_detach_groups(issi, &pdu.group_identity_uplink.unwrap());
+        let accepted_gid = self.try_attach_detach_groups(issi, &pdu.group_identity_uplink.unwrap());
 
         // Build reply PDU
         let pdu_response = DAttachDetachGroupIdentityAcknowledgement {
             group_identity_accept_reject: 0, // Accept
-            reserved: false, // TODO FIXME Guessed proper value of reserved field
+            reserved: false,                 // TODO FIXME Guessed proper value of reserved field
             proprietary: None,
             group_identity_downlink: Some(accepted_gid),
             group_identity_security_related_information: None,
@@ -282,34 +296,35 @@ impl MmBs {
         sdu.seek(0);
         tracing::debug!("-> {:?} sdu {}", pdu_response, sdu.dump_bin());
 
-        let addr = TetraAddress { 
-            encrypted: false, 
-            ssi_type: SsiType::Ssi, 
-            ssi: issi 
+        let addr = TetraAddress {
+            encrypted: false,
+            ssi_type: SsiType::Ssi,
+            ssi: issi,
         };
         let msg = SapMsg {
             sap: Sap::LmmSap,
             src: TetraEntity::Mm,
             dest: TetraEntity::Mle,
             dltime: message.dltime,
-            msg: SapMsgInner::LmmMleUnitdataReq(LmmMleUnitdataReq{
+            msg: SapMsgInner::LmmMleUnitdataReq(LmmMleUnitdataReq {
                 sdu,
                 handle: prim.handle,
                 address: addr,
                 layer2service: 0,
                 stealing_permission: false,
-                stealing_repeats_flag: false, 
+                stealing_repeats_flag: false,
                 encryption_flag: false,
                 is_null_pdu: false,
-            })
+            }),
         };
         queue.push_back(msg);
     }
 
     fn rx_lmm_mle_unitdata_ind(&mut self, queue: &mut MessageQueue, mut message: SapMsg) {
-
         // unimplemented_log!("rx_lmm_mle_unitdata_ind for MM component");
-        let SapMsgInner::LmmMleUnitdataInd(prim) = &mut message.msg else {panic!()};
+        let SapMsgInner::LmmMleUnitdataInd(prim) = &mut message.msg else {
+            panic!()
+        };
 
         let Some(bits) = prim.sdu.peek_bits(4) else {
             tracing::warn!("insufficient bits: {}", prim.sdu.dump_bin());
@@ -322,30 +337,18 @@ impl MmBs {
         };
 
         match pdu_type {
-            MmPduTypeUl::UAuthentication => 
-                unimplemented_log!("UAuthentication"),
-            MmPduTypeUl::UItsiDetach => 
-                self.rx_u_itsi_detach(queue, message),
-            MmPduTypeUl::ULocationUpdateDemand => 
-                self.rx_u_location_update_demand(queue, message),
-            MmPduTypeUl::UMmStatus =>   
-                self.rx_u_mm_status(queue, message),
-            MmPduTypeUl::UCkChangeResult => 
-                unimplemented_log!("UCkChangeResult"),
-            MmPduTypeUl::UOtar =>   
-                unimplemented_log!("UOtar"),
-            MmPduTypeUl::UInformationProvide => 
-                unimplemented_log!("UInformationProvide"),
-            MmPduTypeUl::UAttachDetachGroupIdentity => 
-                self.rx_u_attach_detach_group_identity(queue, message),
-            MmPduTypeUl::UAttachDetachGroupIdentityAcknowledgement => 
-                unimplemented_log!("UAttachDetachGroupIdentityAcknowledgement"),
-            MmPduTypeUl::UTeiProvide => 
-                unimplemented_log!("UTeiProvide"),
-            MmPduTypeUl::UDisableStatus => 
-                unimplemented_log!("UDisableStatus"),
-            MmPduTypeUl::MmPduFunctionNotSupported => 
-                unimplemented_log!("MmPduFunctionNotSupported"),
+            MmPduTypeUl::UAuthentication => unimplemented_log!("UAuthentication"),
+            MmPduTypeUl::UItsiDetach => self.rx_u_itsi_detach(queue, message),
+            MmPduTypeUl::ULocationUpdateDemand => self.rx_u_location_update_demand(queue, message),
+            MmPduTypeUl::UMmStatus => self.rx_u_mm_status(queue, message),
+            MmPduTypeUl::UCkChangeResult => unimplemented_log!("UCkChangeResult"),
+            MmPduTypeUl::UOtar => unimplemented_log!("UOtar"),
+            MmPduTypeUl::UInformationProvide => unimplemented_log!("UInformationProvide"),
+            MmPduTypeUl::UAttachDetachGroupIdentity => self.rx_u_attach_detach_group_identity(queue, message),
+            MmPduTypeUl::UAttachDetachGroupIdentityAcknowledgement => unimplemented_log!("UAttachDetachGroupIdentityAcknowledgement"),
+            MmPduTypeUl::UTeiProvide => unimplemented_log!("UTeiProvide"),
+            MmPduTypeUl::UDisableStatus => unimplemented_log!("UDisableStatus"),
+            MmPduTypeUl::MmPduFunctionNotSupported => unimplemented_log!("MmPduFunctionNotSupported"),
         };
     }
 
@@ -355,7 +358,7 @@ impl MmBs {
             if giu.gssi.is_none() || giu.vgssi.is_some() || giu.address_extension.is_some() {
                 unimplemented_log!("Only support GroupIdentityUplink with address_type 0");
                 continue;
-            }   
+            }
 
             let gssi = giu.gssi.unwrap(); // can't fail
             match self.client_mgr.client_group_attach(issi, gssi, true) {
@@ -369,10 +372,10 @@ impl MmBs {
                         group_identity_detachment_uplink: None,
                         gssi: Some(giu.gssi.unwrap()),
                         address_extension: None,
-                        vgssi: None
+                        vgssi: None,
                     };
                     accepted_groups.push(gid);
-                },
+                }
                 Err(e) => {
                     tracing::warn!("Failed attaching MS {} to group {}: {:?}", issi, gssi, e);
                 }
@@ -392,10 +395,11 @@ impl MmBs {
         supported
     }
 
-
     fn feature_check_u_location_update_demand(pdu: &ULocationUpdateDemand) -> bool {
         let mut supported = true;
-        if pdu.location_update_type != LocationUpdateType::RoamingLocationUpdating && pdu.location_update_type != LocationUpdateType::ItsiAttach {
+        if pdu.location_update_type != LocationUpdateType::RoamingLocationUpdating
+            && pdu.location_update_type != LocationUpdateType::ItsiAttach
+        {
             unimplemented_log!("Unsupported {}", pdu.location_update_type);
             supported = false;
         }
@@ -464,10 +468,7 @@ impl MmBs {
     }
 }
 
-
-
 impl TetraEntityTrait for MmBs {
-
     fn entity(&self) -> TetraEntity {
         TetraEntity::Mm
     }
@@ -477,18 +478,19 @@ impl TetraEntityTrait for MmBs {
     }
 
     fn rx_prim(&mut self, queue: &mut MessageQueue, message: SapMsg) {
-        
         tracing::debug!("rx_prim: {:?}", message);
         // tracing::debug!(ts=%message.dltime, "rx_prim: {:?}", message);
-        
+
         // There is only one SAP for MM
         assert!(message.sap == Sap::LmmSap);
-        
+
         match message.msg {
             SapMsgInner::LmmMleUnitdataInd(_) => {
                 self.rx_lmm_mle_unitdata_ind(queue, message);
             }
-            _ => { panic!(); }
+            _ => {
+                panic!();
+            }
         }
     }
 }
