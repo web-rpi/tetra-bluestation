@@ -26,6 +26,9 @@ pub struct CfgBrew {
 
 #[derive(Default, Deserialize)]
 pub struct CfgBrewDto {
+    /// Enable/disable Brew integration when [brew] table is present
+    #[serde(default = "default_brew_enabled")]
+    pub enabled: bool,
     /// TetraPack server hostname or IP
     pub host: String,
     /// TetraPack server port
@@ -33,10 +36,12 @@ pub struct CfgBrewDto {
     pub port: u16,
     /// Use TLS (wss:// / https://)
     pub tls: bool,
+    /// Optional user-agent string (currently accepted for config compatibility)
+    pub user_agent: Option<String>,
     /// Optional username for HTTP Digest auth
-    pub username: u32,
+    pub username: Option<String>,
     /// Optional password for HTTP Digest auth
-    pub password: String,
+    pub password: Option<String>,
     /// ISSI to register with the TetraPack server
     pub issi: u32,
     /// GSSIs (group IDs) to affiliate to
@@ -53,6 +58,10 @@ fn default_brew_port() -> u16 {
     3000
 }
 
+fn default_brew_enabled() -> bool {
+    true
+}
+
 fn default_brew_reconnect_delay() -> u64 {
     15
 }
@@ -63,8 +72,8 @@ pub fn apply_brew_patch(src: CfgBrewDto) -> CfgBrew {
         host: src.host,
         port: src.port,
         tls: src.tls,
-        username: Some(src.username.to_string()),
-        password: Some(src.password),
+        username: src.username,
+        password: src.password,
         issi: src.issi,
         groups: src.groups,
         reconnect_delay_secs: src.reconnect_delay_secs,
