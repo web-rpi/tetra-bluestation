@@ -179,11 +179,15 @@ impl LmacBs {
     }
 
     fn rx_blk_traffic(&mut self, queue: &mut MessageQueue, blk: TpUnitdataInd, lchan: LogicalChannel, ul_time: TdmaTime) {
-        // Only full-slot TCH/S supported for now
-        if lchan != LogicalChannel::TchS || blk.block_num != PhyBlockNum::Both {
+        // Support full-slot TCH/S and half-slot TCH/S on block2 of STCH+TCH bursts.
+        if lchan != LogicalChannel::TchS {
+            tracing::trace!("rx_blk_traffic: ignoring unsupported lchan={:?}", lchan);
+            return;
+        }
+
+        if !(blk.block_num == PhyBlockNum::Both || blk.block_num == PhyBlockNum::Block2) {
             tracing::trace!(
-                "rx_blk_traffic: ignoring partial/unsupported lchan={:?} blk_num={:?}",
-                lchan,
+                "rx_blk_traffic: ignoring unsupported blk_num={:?} for TCH/S",
                 blk.block_num
             );
             return;
@@ -200,7 +204,12 @@ impl LmacBs {
         let mut type5_copy = tetra_core::BitBuffer::from_bitbuffer_pos(&type5);
         type5_copy.seek(0);
 
-        let (decoded, crc_ok) = errorcontrol::decode_tp(lchan, type5, self.scrambling_code);
+        // Full-slot (Both) uses normal decoder; half-slot (Block2) uses erasure-aware decoder.
+        let (decoded, crc_ok) = if blk.block_num == PhyBlockNum::Block2 {
+            errorcontrol::decode_tp_halfslot_block2(lchan, type5, self.scrambling_code)
+        } else {
+            errorcontrol::decode_tp(lchan, type5, self.scrambling_code)
+        };
         let Some(acelp_bits) = decoded else {
             // In aggressive hangtime bounce mode we may still see SCH/F signalling bursts on this slot.
             // Try decoding as full-slot control before giving up.

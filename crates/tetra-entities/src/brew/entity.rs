@@ -16,7 +16,8 @@ use crate::{MessageQueue, TetraEntityTrait};
 use super::worker::{BrewCommand, BrewConfig, BrewEvent, BrewWorker};
 
 /// Hangtime before releasing group call circuit to allow reuse without re-signaling.
-const GROUP_CALL_HANGTIME: Duration = Duration::from_secs(5);
+/// Keep this short so group switching / rapid re-PTT doesn't feel laggy.
+const GROUP_CALL_HANGTIME: Duration = Duration::from_secs(1);
 /// Minimum playout buffer depth in frames.
 const BREW_JITTER_MIN_FRAMES: usize = 2;
 /// Default playout buffer depth in frames.
@@ -31,6 +32,10 @@ const BREW_EXPECTED_FRAME_INTERVAL_US: f64 = 56_667.0;
 const BREW_JITTER_WARN_TARGET_FRAMES: usize = 8;
 /// Rate-limit warning logs per call.
 const BREW_JITTER_WARN_INTERVAL: Duration = Duration::from_secs(5);
+// When a radio releases PTT, we enter hangtime. Users often re-press quickly.
+// If we send GROUP_IDLE immediately, the subsequent GROUP_TX restart adds latency.
+// Debounce short re-presses by delaying GROUP_IDLE a little.
+const UL_PTT_IDLE_DEBOUNCE_MS: u64 = 250;
 
 // ─── Active call tracking ─────────────────────────────────────────
 
@@ -94,11 +99,6 @@ struct UlForwardedCall {
     /// When tx_active transitioned to false (used to debounce short PTT re-presses)
     tx_stopped_since: Option<Instant>,
 }
-
-// When a radio releases PTT, we enter hangtime. Users often re-press quickly.
-// If we send GROUP_IDLE immediately, the subsequent GROUP_TX restart adds latency.
-// Debounce short re-presses by delaying GROUP_IDLE a little.
-const UL_PTT_IDLE_DEBOUNCE_MS: u64 = 700;
 
 #[derive(Debug)]
 struct JitterFrame {
@@ -203,10 +203,8 @@ impl VoiceJitterBuffer {
     }
 
     fn recompute_target(&mut self) {
-        let jitter_component =
-            ((self.jitter_us_ewma * 2.0) / BREW_EXPECTED_FRAME_INTERVAL_US).ceil() as usize;
-        let target =
-            BREW_JITTER_BASE_FRAMES + self.initial_latency_frames + jitter_component + self.underrun_boost;
+        let jitter_component = ((self.jitter_us_ewma * 2.0) / BREW_EXPECTED_FRAME_INTERVAL_US).ceil() as usize;
+        let target = BREW_JITTER_BASE_FRAMES + self.initial_latency_frames + jitter_component + self.underrun_boost;
         self.target_frames = target.clamp(BREW_JITTER_MIN_FRAMES, BREW_JITTER_TARGET_MAX_FRAMES);
     }
 
@@ -327,7 +325,7 @@ impl BrewEntity {
                     self.handle_group_call_end(queue, uuid, cause);
                 }
                 BrewEvent::VoiceFrame { uuid, length_bits, data } => {
-                    self.handle_voice_frame(uuid, length_bits, data);
+                    self.handle_voice_frame(queue, uuid, length_bits, data);
                 }
                 BrewEvent::SubscriberEvent { msg_type, issi, groups } => {
                     tracing::debug!("BrewEntity: subscriber event type={} issi={} groups={:?}", msg_type, issi, groups);
@@ -495,12 +493,10 @@ impl BrewEntity {
 
     /// Clean up expired hanging call tracking hints (CMCE already released circuits)
     fn expire_hanging_calls(&mut self, _queue: &mut MessageQueue) {
-        const HANGTIME_SECS: u64 = 5;
-
         let expired: Vec<u32> = self
             .hanging_calls
             .iter()
-            .filter(|(_, h)| h.since.elapsed().as_secs() > HANGTIME_SECS)
+            .filter(|(_, h)| h.since.elapsed() > GROUP_CALL_HANGTIME)
             .map(|(gssi, _)| *gssi)
             .collect();
 
@@ -513,7 +509,7 @@ impl BrewEntity {
     }
 
     /// Handle a voice frame from Brew — inject into the downlink
-    fn handle_voice_frame(&mut self, uuid: Uuid, _length_bits: u16, data: Vec<u8>) {
+    fn handle_voice_frame(&mut self, _queue: &mut MessageQueue, uuid: Uuid, _length_bits: u16, data: Vec<u8>) {
         let Some(call) = self.active_calls.get_mut(&uuid) else {
             // Voice frame for unknown call — might arrive before GROUP_TX or after GROUP_IDLE
             tracing::trace!("BrewEntity: voice frame for unknown uuid={} ({} bytes)", uuid, data.len());
@@ -662,7 +658,7 @@ impl TetraEntityTrait for BrewEntity {
         self.process_events(queue);
         // Feed one buffered frame at each traffic playout opportunity.
         self.drain_jitter_playout(queue);
-        // Debounce short UL PTT re-presses by delaying GROUP_IDLE.
+        // Debounce short PTT re-presses on UL by delaying GROUP_IDLE
         self.expire_ul_ptt_idle_debounce();
         // Expire hanging calls that have exceeded hangtime
         self.expire_hanging_calls(queue);
@@ -674,7 +670,7 @@ impl TetraEntityTrait for BrewEntity {
             SapMsgInner::TmdCircuitDataInd(prim) => {
                 self.handle_ul_voice(prim.ts, prim.data);
             }
-            // Floor-control and call lifecycle notifications from CMCE
+            // Floor-control notifications from CMCE (used for UL forwarding)
             SapMsgInner::CmceCallControl(CallControl::FloorGranted {
                 call_id,
                 source_issi,
@@ -774,7 +770,6 @@ impl BrewEntity {
             uuid
         );
 
-        // Send GROUP_TX to TetraPack
         let _ = self.command_sender.send(BrewCommand::SendGroupTx {
             uuid,
             source_issi,
@@ -783,7 +778,6 @@ impl BrewEntity {
             service: 0, // TETRA encoded speech
         });
 
-        // Track this forwarded call
         self.ul_forwarded.insert(
             ts,
             UlForwardedCall {

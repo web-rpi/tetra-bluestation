@@ -81,13 +81,7 @@ impl BsDefrag {
     pub fn discard(&mut self, ssi: u32, t: TdmaTime) {
         let ts = (t.t - 1) as usize;
         if let Some(mut buf) = self.buffers[ts].remove(&ssi) {
-            tracing::warn!(
-                "defrag_buffer discard ts {} ssi {} (state: {:?}, frags: {})",
-                t.t,
-                ssi,
-                buf.state,
-                buf.num_frags
-            );
+            tracing::warn!("defrag_buffer discard ts {} ssi {} (state: {:?}, frags: {})", t.t, ssi, buf.state, buf.num_frags);
             buf.reset();
         }
     }
