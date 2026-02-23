@@ -75,6 +75,8 @@ fn build_bs_stack(cfg: &mut SharedConfig) -> MessageRouter {
             groups: brew_cfg.groups,
             reconnect_delay: Duration::from_secs(brew_cfg.reconnect_delay_secs),
             jitter_initial_latency_frames: brew_cfg.jitter_initial_latency_frames,
+            whitelisted_ssi_ranges: brew_cfg.whitelisted_ssi_ranges,
+            blacklisted_ssi_ranges: brew_cfg.blacklisted_ssi_ranges,
         };
         let brew_entity = BrewEntity::new(cfg.clone(), brew_config);
         router.register_entity(Box::new(brew_entity));

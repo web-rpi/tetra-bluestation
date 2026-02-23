@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crossbeam_channel::{Receiver, Sender};
+use tetra_core::ranges::SortedDisjointSsiRanges;
 use tungstenite::{Message, WebSocket, stream::MaybeTlsStream};
 use uuid::Uuid;
 
@@ -97,6 +98,9 @@ pub struct BrewConfig {
     pub reconnect_delay: Duration,
     /// Extra initial jitter playout delay in frames (added on top of adaptive baseline)
     pub jitter_initial_latency_frames: u8,
+
+    pub whitelisted_ssi_ranges: Option<SortedDisjointSsiRanges>,
+    pub blacklisted_ssi_ranges: Option<SortedDisjointSsiRanges>,
 }
 
 // ─── TLS helper ──────────────────────────────────────────────────
