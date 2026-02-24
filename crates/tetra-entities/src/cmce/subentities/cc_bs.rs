@@ -712,7 +712,7 @@ impl CcBsSubentity {
             simplex_duplex_selection: pdu.simplex_duplex_selection,
             basic_service_information: pdu.basic_service_information.clone(),
             transmission_grant: TransmissionGrant::GrantedToOtherUser,
-            transmission_request_permission: true,
+            transmission_request_permission: false,
             call_priority: pdu.call_priority,
             notification_indicator: None,
             temporary_address: None,
@@ -812,11 +812,21 @@ impl CcBsSubentity {
         if let Some(tasks) = self.circuits.tick_start(dltime) {
             for task in tasks {
                 match task {
-                    CircuitMgrCmd::SendDSetup(call_id, usage, ts) => {
+                    CircuitMgrCmd::SendDSetup(call_id, usage, ts, is_late_entry) => {
+                        // Late-entry D-SETUPs are optional — suppress when MCCH already has
+                        // queued signalling to avoid contention on TS1.
+                        if is_late_entry {
+                            let mcch_depth = self.config.state_read().mcch_queue_depth;
+                            if mcch_depth > 0 {
+                                tracing::trace!("Suppressing late-entry D-SETUP for call_id={} (MCCH depth={})", call_id, mcch_depth);
+                                continue;
+                            }
+                        }
+
                         // Get our cached D-SETUP, build a prim and send it down the stack
                         let Some((pdu, dest_addr)) = self.cached_setups.get_mut(&call_id) else {
                             tracing::error!("No cached D-SETUP for call id {}", call_id);
-                            return;
+                            continue;
                         };
                         // Update transmission_grant based on current call state:
                         // During hangtime (nobody transmitting), use NotGranted;

@@ -207,6 +207,11 @@ impl BsChannelScheduler {
         }
     }
 
+    /// Returns the number of queued downlink signalling items for a timeslot (1-based).
+    pub fn dl_queue_depth(&self, ts: u8) -> usize {
+        self.dltx_queues[ts as usize - 1].len()
+    }
+
     /// Fully wipe the schedule
     pub fn purge_schedule(&mut self) {
         self.dltx_queues = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];

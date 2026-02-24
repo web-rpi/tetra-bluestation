@@ -15,7 +15,7 @@ pub enum CircuitErr {
 }
 
 pub enum CircuitMgrCmd {
-    SendDSetup(CallId, u8, u8), // call id, usage number, timeslot
+    SendDSetup(CallId, u8, u8, bool), // call id, usage number, timeslot, is_late_entry
     SendClose(CallId, CmceCircuit),
 }
 
@@ -304,8 +304,8 @@ impl CircuitMgr {
             tasks = self.close_expired_circuits(tasks);
 
             // Next, go through channels, see if D-SETUPs need to be sent
-            // Late entry: resend D-SETUP every 20 multiframes (5 seconds)
-            const LATE_ENTRY_INTERVAL_TIMESLOTS: i32 = 20 * 18 * 4; // 20 MN = 1440 timeslots
+            // Late entry: resend D-SETUP every 5 seconds
+            const LATE_ENTRY_INTERVAL_TIMESLOTS: i32 = 5 * 18 * 4; // 5s = 360 timeslots
 
             for circuit in self.dl.iter() {
                 if let Some(circuit) = circuit {
@@ -314,15 +314,21 @@ impl CircuitMgr {
                     // Send D-SETUP for the initial frame + 1 backup frame after circuit creation.
                     // Matches ETSI Annex D Figure D.2: 1 initial + 1 back-up on MCCH.
                     if age < 1 * 4 {
-                        tasks
-                            .get_or_insert_with(Vec::new)
-                            .push(CircuitMgrCmd::SendDSetup(circuit.call_id, circuit.usage, circuit.ts));
+                        tasks.get_or_insert_with(Vec::new).push(CircuitMgrCmd::SendDSetup(
+                            circuit.call_id,
+                            circuit.usage,
+                            circuit.ts,
+                            false,
+                        ));
                     }
-                    // Late entry: resend every 20 multiframes
+                    // Late entry: resend every 5 seconds
                     else if age % LATE_ENTRY_INTERVAL_TIMESLOTS == 0 {
-                        tasks
-                            .get_or_insert_with(Vec::new)
-                            .push(CircuitMgrCmd::SendDSetup(circuit.call_id, circuit.usage, circuit.ts));
+                        tasks.get_or_insert_with(Vec::new).push(CircuitMgrCmd::SendDSetup(
+                            circuit.call_id,
+                            circuit.usage,
+                            circuit.ts,
+                            true,
+                        ));
                     }
                 }
             }

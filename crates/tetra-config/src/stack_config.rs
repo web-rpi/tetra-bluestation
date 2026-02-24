@@ -268,6 +268,9 @@ pub struct StackState {
     pub timeslot_alloc: TimeslotAllocator,
     /// Backhaul/network connection to SwMI (e.g., Brew/TetraPack). False -> fallback mode.
     pub network_connected: bool,
+    /// Number of queued signalling items on MCCH (TS1). Written by UMAC each tick.
+    /// Used by CMCE to suppress optional late-entry D-SETUP when the channel is busy.
+    pub mcch_queue_depth: usize,
 }
 
 impl Default for StackState {
@@ -276,6 +279,7 @@ impl Default for StackState {
             cell_load_ca: 0,
             timeslot_alloc: TimeslotAllocator::default(),
             network_connected: false,
+            mcch_queue_depth: 0,
         }
     }
 }

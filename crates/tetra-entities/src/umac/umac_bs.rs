@@ -1452,6 +1452,9 @@ impl TetraEntityTrait for UmacBs {
             self.channel_scheduler.tick_start(ts);
         }
 
+        // Publish MCCH queue depth so CMCE can throttle optional late-entry D-SETUPs
+        self.config.state_write().mcch_queue_depth = self.channel_scheduler.dl_queue_depth(1);
+
         // Collect/construct traffic that should be sent down to the LMAC
         // This is basically the _previous_ timeslot
         let elem = self.channel_scheduler.finalize_ts_for_tick();
