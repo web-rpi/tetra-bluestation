@@ -144,6 +144,15 @@ voice_service = true
 # Frame 18 extension support
 # frame_18_ext = false
 
+# Local SSI ranges for this cell. Traffic for these ranges will not leave the cell
+# This overrides any settings in brew section, if enabled. 
+# Also, incoming brew traffic on those rangges will be dropped
+# Range end is exclusive, so the range end number is NOT inside the ranges
+# local_ssi_ranges = [
+#     [0, 91],
+# ]
+
+
 ###############################################################################
 
 # Brew protocol: Connect to TetraPack/BrandMeister server via TETRA Homebrew Protocol.
@@ -174,3 +183,18 @@ voice_service = true
 # Optional: additional initial latency compensation in frames for inbound Brew jitter playout.
 # Adaptive jitter buffering is always enabled; this adds fixed startup delay if needed.
 # jitter_initial_latency_frames = 0
+
+# Ranges 0-90 (including) cannot be routed over brew. 
+# You can congure local_ssi_ranges (see above) to guarantee certain ranges remain local
+# Additionally, you can have a brew-specific whitelist OR blacklist
+# Whitelist: 				only SSIs in one of these ranges may be routed over brew
+# Blacklist: 				local_ssi_ranges and blacklisted_ssi_ranges are NOT allowed over brew, others are allowed
+# No blacklist, whitelist: 	local_ssi_ranges are NOT allowed over brew, others are allowed
+# Range end is exclusive, so the range end number is NOT inside the range
+# whitelisted_ssi_ranges = [
+# 	[90,100],
+# 	[200,300]
+# ]
+# blacklisted_ssi_ranges = [
+# 	[90,100]
+# ]

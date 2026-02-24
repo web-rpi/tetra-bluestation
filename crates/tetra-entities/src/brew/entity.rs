@@ -267,8 +267,8 @@ impl BrewEntity {
         let (command_sender, command_receiver) = unbounded::<BrewCommand>();
 
         // Spawn worker thread
-        let worker_config = config.config().as_ref().brew.clone().unwrap(); // Never fails
-        let entity_config = worker_config.clone();
+        let brew_config = config.config().as_ref().brew.clone().unwrap(); // Never fails
+        let worker_config = config.clone();
         let handle = thread::Builder::new()
             .name("brew-worker".to_string())
             .spawn(move || {
@@ -284,7 +284,7 @@ impl BrewEntity {
 
         Self {
             config,
-            brew_config: entity_config,
+            brew_config,
             dltime: TdmaTime::default(),
             event_receiver,
             command_sender,
@@ -293,8 +293,6 @@ impl BrewEntity {
             hanging_calls: HashMap::new(),
             ul_forwarded: HashMap::new(),
             subscriber_groups: HashMap::new(),
-            // next_call_id: 100, // Start at 100 to avoid collision with CMCE
-            // next_usage: 10,    // Start at 10 to avoid collision
             connected: false,
             worker_handle: Some(handle),
         }

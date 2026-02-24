@@ -29,6 +29,7 @@ use tetra_saps::{
     },
 };
 
+use crate::brew;
 use crate::{
     MessageQueue,
     cmce::components::circuit_mgr::{CircuitMgr, CircuitMgrCmd},
@@ -283,15 +284,14 @@ impl CcBsSubentity {
         for (call_id, origin) in to_drop {
             tracing::info!("CMCE: dropping call_id={} gssi={} (no listeners)", call_id, gssi);
             if let CallOrigin::Network { brew_uuid } = origin {
-                if self.config.config().brew.is_some() {
-                    queue.push_back(SapMsg {
-                        sap: Sap::Control,
-                        src: TetraEntity::Cmce,
-                        dest: TetraEntity::Brew,
-                        dltime: self.dltime,
-                        msg: SapMsgInner::CmceCallControl(CallControl::NetworkCallEnd { brew_uuid }),
-                    });
-                }
+                // No further gating needed as presence of brew_uuid proves it should be routed over brew
+                queue.push_back(SapMsg {
+                    sap: Sap::Control,
+                    src: TetraEntity::Cmce,
+                    dest: TetraEntity::Brew,
+                    dltime: self.dltime,
+                    msg: SapMsgInner::CmceCallControl(CallControl::NetworkCallEnd { brew_uuid }),
+                });
             }
             self.release_call(queue, call_id);
         }
@@ -748,9 +748,9 @@ impl CcBsSubentity {
             },
         );
 
-        // Notify Brew entity about this local call if Brew is loaded.
+        // Notify Brew entity about this local call if Brew is loaded and the SSI is cleared for Brew
         // It can then forward to TetraPack if the group is subscribed
-        if self.config.config().brew.is_some() {
+        if brew::is_brew_routable(&self.config, dest_gssi) {
             let msg = SapMsg {
                 sap: Sap::Control,
                 src: TetraEntity::Cmce,
@@ -906,6 +906,7 @@ impl CcBsSubentity {
         // Close the circuit in CircuitMgr and notify Brew
         if let Some(call) = self.active_calls.get(&call_id) {
             let ts = call.ts;
+            let dest_ssi = call.dest_gssi;
             let is_local = matches!(call.origin, CallOrigin::Local { .. });
 
             if let Ok(circuit) = self.circuits.close_circuit(Direction::Both, ts) {
@@ -923,8 +924,8 @@ impl CcBsSubentity {
 
             self.release_timeslot(ts);
 
-            // Notify Brew only for local calls
-            if self.config.config().brew.is_some() {
+            // Notify Brew only for local calls on SSIs that are cleared for Brew
+            if brew::is_brew_routable(&self.config, dest_ssi) {
                 if is_local {
                     let notify = SapMsg {
                         sap: Sap::Control,
@@ -1023,6 +1024,7 @@ impl CcBsSubentity {
         tracing::info!("U-TX CEASED: PTT released on call_id={}, entering hangtime", call_id);
 
         let ts = call.ts;
+        let dest_ssi = call.dest_gssi;
         call.tx_active = false;
         call.hangtime_start = Some(self.dltime);
 
@@ -1062,8 +1064,8 @@ impl CcBsSubentity {
             msg: SapMsgInner::CmceCallControl(CallControl::FloorReleased { call_id, ts }),
         });
 
-        // Notify Brew to stop forwarding audio
-        if self.config.config().brew.is_some() {
+        // Notify Brew to stop forwarding audio, if this SSI is cleared for Br
+        if brew::is_brew_routable(&self.config, dest_ssi) {
             queue.push_back(SapMsg {
                 sap: Sap::Control,
                 src: TetraEntity::Cmce,
@@ -1163,7 +1165,7 @@ impl CcBsSubentity {
         });
 
         // Notify Brew of speaker change (local MS taking floor)
-        if self.config.config().brew.is_some() {
+        if brew::is_brew_routable(&self.config, dest_addr.ssi) {
             let Some(call) = self.active_calls.get(&call_id) else {
                 return;
             };
@@ -1237,15 +1239,15 @@ impl CcBsSubentity {
                 dest_gssi
             );
             self.drop_group_calls_if_unlistened(queue, dest_gssi);
-            if self.config.config().brew.is_some() {
-                queue.push_back(SapMsg {
-                    sap: Sap::Control,
-                    src: TetraEntity::Cmce,
-                    dest: TetraEntity::Brew,
-                    dltime: self.dltime,
-                    msg: SapMsgInner::CmceCallControl(CallControl::NetworkCallEnd { brew_uuid }),
-                });
-            }
+
+            // No further gating, as presence of brew_uuid proves it is a Brew call
+            queue.push_back(SapMsg {
+                sap: Sap::Control,
+                src: TetraEntity::Cmce,
+                dest: TetraEntity::Brew,
+                dltime: self.dltime,
+                msg: SapMsgInner::CmceCallControl(CallControl::NetworkCallEnd { brew_uuid }),
+            });
             return;
         }
 
@@ -1298,20 +1300,19 @@ impl CcBsSubentity {
             });
 
             // Respond to Brew with existing call resources
-            if self.config.config().brew.is_some() {
-                queue.push_back(SapMsg {
-                    sap: Sap::Control,
-                    src: TetraEntity::Cmce,
-                    dest: TetraEntity::Brew,
-                    dltime: self.dltime,
-                    msg: SapMsgInner::CmceCallControl(CallControl::NetworkCallReady {
-                        brew_uuid,
-                        call_id: call_id_val,
-                        ts,
-                        usage,
-                    }),
-                });
-            }
+            // No further gating, as presence of brew_uuid proves it is a Brew call
+            queue.push_back(SapMsg {
+                sap: Sap::Control,
+                src: TetraEntity::Cmce,
+                dest: TetraEntity::Brew,
+                dltime: self.dltime,
+                msg: SapMsgInner::CmceCallControl(CallControl::NetworkCallReady {
+                    brew_uuid,
+                    call_id: call_id_val,
+                    ts,
+                    usage,
+                }),
+            });
             return;
         }
 
@@ -1447,20 +1448,19 @@ impl CcBsSubentity {
         );
 
         // Respond to Brew with allocated resources
-        if self.config.config().brew.is_some() {
-            queue.push_back(SapMsg {
-                sap: Sap::Control,
-                src: TetraEntity::Cmce,
-                dest: TetraEntity::Brew,
-                dltime: self.dltime,
-                msg: SapMsgInner::CmceCallControl(CallControl::NetworkCallReady {
-                    brew_uuid,
-                    call_id,
-                    ts,
-                    usage,
-                }),
-            });
-        }
+        // No further gating, as presence of brew_uuid proves it is a Brew call
+        queue.push_back(SapMsg {
+            sap: Sap::Control,
+            src: TetraEntity::Cmce,
+            dest: TetraEntity::Brew,
+            dltime: self.dltime,
+            msg: SapMsgInner::CmceCallControl(CallControl::NetworkCallReady {
+                brew_uuid,
+                call_id,
+                ts,
+                usage,
+            }),
+        });
     }
 
     /// Handle network call end request

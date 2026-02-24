@@ -1,7 +1,17 @@
-use tetra_config::{SharedConfig, stack_config_brew::CfgBrew};
+use tetra_config::SharedConfig;
+
+/// Returns true if the Brew component is active
+#[inline]
+pub fn is_active(config: &SharedConfig) -> bool {
+    config.config().brew.is_some()
+}
 
 /// Determine if a given SSI should be routed over brew, or is restricted to local handling
-pub fn is_brew_routable(config: &SharedConfig, brew_config: &CfgBrew, ssi: u32) -> bool {
+pub fn is_brew_routable(config: &SharedConfig, ssi: u32) -> bool {
+    let Some(brew_config) = &config.config().brew else {
+        // Brew not configured, so no routing to Brew
+        return false;
+    };
     if ssi <= 90 {
         // Brew doesn't route 0..=90
         return false;
