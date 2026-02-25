@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use tetra_config::SharedConfig;
 use tetra_core::TimeslotOwner;
 use tetra_core::{BitBuffer, Direction, Sap, SsiType, TdmaTime, TetraAddress, tetra_entities::TetraEntity, unimplemented_log};
+use tetra_pdus::cmce::enums::disconnect_cause::DisconnectCause;
 use tetra_pdus::cmce::{
     enums::{
         call_timeout::CallTimeout, call_timeout_setup_phase::CallTimeoutSetupPhase, cmce_pdu_type_ul::CmcePduTypeUl,
@@ -11,7 +12,8 @@ use tetra_pdus::cmce::{
     fields::basic_service_information::BasicServiceInformation,
     pdus::{
         d_call_proceeding::DCallProceeding, d_connect::DConnect, d_release::DRelease, d_setup::DSetup, d_tx_ceased::DTxCeased,
-        d_tx_granted::DTxGranted, u_release::URelease, u_setup::USetup, u_tx_ceased::UTxCeased, u_tx_demand::UTxDemand,
+        d_tx_granted::DTxGranted, u_disconnect::UDisconnect, u_release::URelease, u_setup::USetup, u_tx_ceased::UTxCeased,
+        u_tx_demand::UTxDemand,
     },
     structs::cmce_circuit::CmceCircuit,
 };
@@ -234,10 +236,10 @@ impl CcBsSubentity {
         }
     }
 
-    fn build_d_release_from_d_setup(d_setup_pdu: &DSetup) -> BitBuffer {
+    fn build_d_release_from_d_setup(d_setup_pdu: &DSetup, disconnect_cause: DisconnectCause) -> BitBuffer {
         let pdu = DRelease {
             call_identifier: d_setup_pdu.call_identifier,
-            disconnect_cause: 13, // todo fixme
+            disconnect_cause,
             notification_indicator: None,
             facility: None,
             proprietary: None,
@@ -294,7 +296,7 @@ impl CcBsSubentity {
                     });
                 };
             };
-            self.release_call(queue, call_id);
+            self.release_call(queue, call_id, DisconnectCause::SwmiRequestedDisconnection);
         }
     }
 
@@ -391,58 +393,6 @@ impl CcBsSubentity {
         pdu_response.to_bitbuf(&mut sdu).expect("Failed to serialize DCallProceeding");
         sdu.seek(0);
         tracing::debug!("send_d_call_proceeding: -> {:?} sdu {}", pdu_response, sdu.dump_bin());
-
-        let msg = SapMsg {
-            sap: Sap::LcmcSap,
-            src: TetraEntity::Cmce,
-            dest: TetraEntity::Mle,
-            dltime: message.dltime,
-            msg: SapMsgInner::LcmcMleUnitdataReq(LcmcMleUnitdataReq {
-                sdu,
-                handle: prim.handle,
-                endpoint_id: prim.endpoint_id,
-                link_id: prim.link_id,
-                layer2service: 0,
-                pdu_prio: 0,
-                layer2_qos: 0,
-                stealing_permission: false,
-                stealing_repeats_flag: false,
-
-                chan_alloc: None,
-                main_address: prim.received_tetra_address,
-                // redundant_transmission: 1,
-            }),
-        };
-        queue.push_back(msg);
-    }
-
-    fn send_d_connect(&mut self, queue: &mut MessageQueue, message: &SapMsg, pdu_request: &USetup, call_id: u16) {
-        tracing::trace!("send_d_connect");
-
-        let SapMsgInner::LcmcMleUnitdataInd(prim) = &message.msg else {
-            panic!()
-        };
-
-        let pdu_response = DConnect {
-            call_identifier: call_id,
-            call_time_out: CallTimeout::T30m,
-            hook_method_selection: pdu_request.hook_method_selection,
-            simplex_duplex_selection: pdu_request.simplex_duplex_selection,
-            transmission_grant: TransmissionGrant::Granted,
-            transmission_request_permission: false, // CHECKME an MS may not ask for transmit permission
-            call_ownership: false,                  // Group call meaning: false = not a call owner
-            call_priority: None,
-            basic_service_information: None,
-            temporary_address: None,
-            notification_indicator: None,
-            facility: None,
-            proprietary: None,
-        };
-
-        let mut sdu = BitBuffer::new_autoexpand(30);
-        pdu_response.to_bitbuf(&mut sdu).expect("Failed to serialize DConnect");
-        sdu.seek(0);
-        tracing::debug!("send_d_connect: -> {:?} sdu {}", pdu_response, sdu.dump_bin());
 
         let msg = SapMsg {
             sap: Sap::LcmcSap,
@@ -662,7 +612,7 @@ impl CcBsSubentity {
             simplex_duplex_selection: pdu.simplex_duplex_selection,
             transmission_grant: TransmissionGrant::Granted,
             transmission_request_permission: false,
-            call_ownership: false,
+            call_ownership: true, // Calling MS is the call owner (ETSI 14.8.4)
             call_priority: None,
             basic_service_information: None,
             temporary_address: None,
@@ -789,9 +739,9 @@ impl CcBsSubentity {
             CmcePduTypeUl::UTxCeased => self.rx_u_tx_ceased(_queue, message),
             CmcePduTypeUl::UTxDemand => self.rx_u_tx_demand(_queue, message),
             CmcePduTypeUl::URelease => self.rx_u_release(_queue, message),
+            CmcePduTypeUl::UDisconnect => self.rx_u_disconnect(_queue, message),
             CmcePduTypeUl::UAlert
             | CmcePduTypeUl::UConnect
-            | CmcePduTypeUl::UDisconnect
             | CmcePduTypeUl::UInfo
             | CmcePduTypeUl::UStatus
             | CmcePduTypeUl::UCallRestore => {
@@ -850,7 +800,7 @@ impl CcBsSubentity {
                         // Get our cached D-SETUP, build D-RELEASE and send
                         if let Some((pdu, dest_addr)) = self.cached_setups.get(&call_id) {
                             let dest_addr = *dest_addr;
-                            let sdu = Self::build_d_release_from_d_setup(pdu);
+                            let sdu = Self::build_d_release_from_d_setup(pdu, DisconnectCause::ExpiryOfTimer);
                             let prim = Self::build_sapmsg(sdu, None, self.dltime, dest_addr);
                             queue.push_back(prim);
                         } else {
@@ -890,7 +840,7 @@ impl CcBsSubentity {
 
         for call_id in expired {
             tracing::info!("Hangtime expired for call_id={}, releasing", call_id);
-            self.release_call(queue, call_id);
+            self.release_call(queue, call_id, DisconnectCause::ExpiryOfTimer);
         }
     }
 
@@ -902,7 +852,7 @@ impl CcBsSubentity {
     }
 
     /// Release a call: send D-RELEASE, close circuits, clean up state
-    fn release_call(&mut self, queue: &mut MessageQueue, call_id: u16) {
+    fn release_call(&mut self, queue: &mut MessageQueue, call_id: u16, disconnect_cause: DisconnectCause) {
         let Some((pdu, dest_addr)) = self.cached_setups.get(&call_id) else {
             tracing::error!("No cached D-SETUP for call_id={}", call_id);
             return;
@@ -910,7 +860,7 @@ impl CcBsSubentity {
         let dest_addr = *dest_addr;
 
         // Send D-RELEASE to group
-        let sdu = Self::build_d_release_from_d_setup(pdu);
+        let sdu = Self::build_d_release_from_d_setup(pdu, disconnect_cause);
         let prim = Self::build_sapmsg(sdu, None, self.dltime, dest_addr);
         queue.push_back(prim);
 
@@ -1214,7 +1164,91 @@ impl CcBsSubentity {
 
         let call_id = pdu.call_identifier;
         tracing::info!("U-RELEASE: call_id={} cause={}", call_id, pdu.disconnect_cause);
-        self.release_call(queue, call_id);
+        self.release_call(queue, call_id, DisconnectCause::UserRequestedDisconnection);
+    }
+
+    /// Handle U-DISCONNECT: MS requests call disconnection (ETSI 14.5.2.3.1)
+    /// Call owner → release entire group call with D-RELEASE (cause=1)
+    /// Non-call owner → reject with D-RELEASE cause=8 individually addressed to sender
+    fn rx_u_disconnect(&mut self, queue: &mut MessageQueue, mut message: SapMsg) {
+        let SapMsgInner::LcmcMleUnitdataInd(prim) = &mut message.msg else {
+            panic!()
+        };
+        let sender = prim.received_tetra_address;
+        let ul_handle = prim.handle;
+        let ul_link_id = prim.link_id;
+        let ul_endpoint_id = prim.endpoint_id;
+
+        let pdu = match UDisconnect::from_bitbuf(&mut prim.sdu) {
+            Ok(pdu) => {
+                tracing::debug!("<- U-DISCONNECT {:?}", pdu);
+                pdu
+            }
+            Err(e) => {
+                tracing::warn!("Failed parsing U-DISCONNECT: {:?}", e);
+                return;
+            }
+        };
+
+        let call_id = pdu.call_identifier;
+        let disconnect_cause = pdu.disconnect_cause;
+
+        let Some(call) = self.active_calls.get(&call_id) else {
+            tracing::debug!("U-DISCONNECT for unknown call_id={} (likely duplicate)", call_id);
+            return;
+        };
+
+        let is_call_owner = matches!(&call.origin, CallOrigin::Local { caller_addr } if caller_addr.ssi == sender.ssi);
+
+        if is_call_owner {
+            // Call owner: tear down the entire group call
+            tracing::info!("U-DISCONNECT: call owner ISSI {} disconnecting call_id={}", sender.ssi, call_id);
+            self.release_call(queue, call_id, DisconnectCause::UserRequestedDisconnection);
+        } else {
+            // Non-call owner: reject with D-RELEASE cause=8 ("Requested service not available")
+            // individually addressed back to the sender. The group call continues.
+            tracing::info!(
+                "U-DISCONNECT: non-call-owner ISSI {} rejected for call_id={} cause={}",
+                sender.ssi,
+                call_id,
+                disconnect_cause
+            );
+
+            let d_release = DRelease {
+                call_identifier: call_id,
+                disconnect_cause: DisconnectCause::RequestedServiceNotAvailable,
+                notification_indicator: None,
+                facility: None,
+                proprietary: None,
+            };
+            tracing::info!("-> {:?} (to ISSI {})", d_release, sender.ssi);
+
+            let mut sdu = BitBuffer::new_autoexpand(32);
+            d_release.to_bitbuf(&mut sdu).expect("Failed to serialize DRelease");
+            sdu.seek(0);
+
+            let sender_addr = TetraAddress::new(sender.ssi, SsiType::Issi);
+            let msg = SapMsg {
+                sap: Sap::LcmcSap,
+                src: TetraEntity::Cmce,
+                dest: TetraEntity::Mle,
+                dltime: self.dltime,
+                msg: SapMsgInner::LcmcMleUnitdataReq(LcmcMleUnitdataReq {
+                    sdu,
+                    handle: ul_handle,
+                    endpoint_id: ul_endpoint_id,
+                    link_id: ul_link_id,
+                    layer2service: 0,
+                    pdu_prio: 0,
+                    layer2_qos: 0,
+                    stealing_permission: false,
+                    stealing_repeats_flag: false,
+                    chan_alloc: None,
+                    main_address: sender_addr,
+                }),
+            };
+            queue.push_back(msg);
+        }
     }
 
     /// Handle incoming CallControl messages from Brew
@@ -1518,7 +1552,7 @@ impl CcBsSubentity {
             });
         } else {
             // Already in hangtime or idle, release immediately
-            self.release_call(queue, call_id);
+            self.release_call(queue, call_id, DisconnectCause::SwmiRequestedDisconnection);
         }
     }
 

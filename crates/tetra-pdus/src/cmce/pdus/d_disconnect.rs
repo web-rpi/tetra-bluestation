@@ -1,5 +1,6 @@
 use core::fmt;
 
+use crate::cmce::enums::disconnect_cause::DisconnectCause;
 use crate::cmce::enums::{cmce_pdu_type_dl::CmcePduTypeDl, type3_elem_id::CmceType3ElemId};
 use tetra_core::typed_pdu_fields::*;
 use tetra_core::{BitBuffer, expect_pdu_type, pdu_parse_error::PduParseErr};
@@ -14,7 +15,7 @@ pub struct DDisconnect {
     /// Type1, 14 bits, Call identifier
     pub call_identifier: u16,
     /// Type1, 5 bits, Disconnect cause
-    pub disconnect_cause: u8,
+    pub disconnect_cause: DisconnectCause,
     /// Type2, 6 bits, Notification indicator
     pub notification_indicator: Option<u64>,
     /// Type3, Facility
@@ -33,8 +34,12 @@ impl DDisconnect {
         assert!(pdu_type == CmcePduTypeDl::DDisconnect.into_raw());
         // Type1
         let call_identifier = buffer.read_field(14, "call_identifier")? as u16;
-        // Type1
-        let disconnect_cause = buffer.read_field(5, "disconnect_cause")? as u8;
+
+        let val = buffer.read_field(5, "disconnect_cause")?;
+        let disconnect_cause = DisconnectCause::try_from(val).map_err(|_| PduParseErr::InvalidValue {
+            field: "disconnect_cause",
+            value: val,
+        })?;
 
         // obit designates presence of any further type2, type3 or type4 fields
         let mut obit = delimiters::read_obit(buffer)?;

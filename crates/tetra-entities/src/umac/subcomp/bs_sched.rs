@@ -509,8 +509,8 @@ impl BsChannelScheduler {
                     // TODO FIXME: it's possibly the best idea to still add fill bits trailing this null pdu.
                     // Check real-world captures.
                 } else {
-                    tracing::warn!(
-                        "try_add_null_pdus: should be okay, but, not enough space for Null PDU in block, got {}",
+                    tracing::debug!(
+                        "try_add_null_pdus: not enough space for Null PDU in block, got {} bits remaining",
                         b.mac_block.get_len_remaining()
                     );
                 }
