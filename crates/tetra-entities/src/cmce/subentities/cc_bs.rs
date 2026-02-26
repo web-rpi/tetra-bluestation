@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use tetra_config::bluestation::SharedConfig;
 use tetra_core::{BitBuffer, Direction, Sap, SsiType, TdmaTime, TetraAddress, tetra_entities::TetraEntity, unimplemented_log};
-use tetra_core::{TimeslotOwner, TxReceipt, TxReporter};
+use tetra_core::{TimeslotOwner, TxReceipt, TxReporter, TxState};
 use tetra_pdus::cmce::enums::disconnect_cause::DisconnectCause;
 use tetra_pdus::cmce::{
     enums::{
@@ -41,8 +41,8 @@ use crate::{
 pub struct CcBsSubentity {
     config: SharedConfig,
     dltime: TdmaTime,
-    /// Cached D-SETUP PDUs for late-entry re-sends: call_id -> (D-SETUP PDU, dest address)
-    cached_setups: HashMap<u16, (DSetup, TetraAddress)>,
+    /// Cached D-SETUP PDUs for late-entry re-sends: call_id -> (D-SETUP PDU, dest address, tx receipt)
+    cached_setups: HashMap<u16, (DSetup, TetraAddress, Option<TxReceipt>)>,
     circuits: CircuitMgr,
     /// Active group calls: call_id -> call info
     active_calls: HashMap<u16, ActiveCall>,
@@ -557,12 +557,13 @@ impl CcBsSubentity {
             proprietary: None,
         };
 
-        // Cache for late-entry re-sends
-        self.cached_setups.insert(circuit.call_id, (d_setup, dest_addr));
-        let (d_setup_ref, _) = self.cached_setups.get(&circuit.call_id).unwrap();
+        // Cache for late-entry re-sends. Receipt starts as None so the CircuitMgr-triggered
+        // backup send (within D_SETUP_REPEATS frames) is not throttled by this initial send.
+        // The first re-send via tick_start will create a tracked receipt.
+        let (_initial_receipt, setup_reporter) = TxReceipt::new(false); // group, no ack
+        self.cached_setups.insert(circuit.call_id, (d_setup, dest_addr, None));
+        let (d_setup_ref, _, _) = self.cached_setups.get(&circuit.call_id).unwrap();
 
-        // TODO FIXME: store setup_receipt, check later if delivered, only send new setup once delivered
-        let (_setup_receipt, setup_reporter) = TxReceipt::new(false); // group, no ack
         let (setup_sdu, setup_chan_alloc) = Self::build_d_setup_prim(d_setup_ref, circuit.usage, circuit.ts, UlDlAssignment::Both);
         let setup_msg = Self::build_sapmsg(setup_sdu, Some(setup_chan_alloc), message.dltime, dest_addr, Some(setup_reporter));
         queue.push_back(setup_msg);
@@ -649,10 +650,27 @@ impl CcBsSubentity {
                 match task {
                     CircuitMgrCmd::SendDSetup(call_id, usage, ts) => {
                         // Get our cached D-SETUP, build a prim and send it down the stack
-                        let Some((pdu, dest_addr)) = self.cached_setups.get_mut(&call_id) else {
+                        let Some((pdu, dest_addr, receipt)) = self.cached_setups.get_mut(&call_id) else {
                             tracing::error!("No cached D-SETUP for call id {}", call_id);
                             continue;
                         };
+
+                        // Throttle: if the previous D-SETUP hasn't reached a final state yet
+                        // (still queued in UMAC), skip this re-send to avoid flooding the MCCH.
+                        if let Some(r) = receipt.as_ref() {
+                            if !r.is_in_final_state() {
+                                tracing::trace!(
+                                    "Suppressing D-SETUP re-send for call_id={} (previous still {:?})",
+                                    call_id,
+                                    r.get_state()
+                                );
+                                continue;
+                            }
+                            if r.get_state() == TxState::Discarded {
+                                tracing::debug!("Previous D-SETUP for call_id={} was discarded by UMAC, retrying", call_id);
+                            }
+                        }
+
                         // Update transmission_grant based on current call state:
                         // During hangtime (nobody transmitting), use NotGranted;
                         // during active TX, use GrantedToOtherUser.
@@ -665,7 +683,12 @@ impl CcBsSubentity {
                         }
                         let dest_addr = *dest_addr;
                         let (sdu, chan_alloc) = Self::build_d_setup_prim(pdu, usage, ts, UlDlAssignment::Both);
-                        let prim = Self::build_sapmsg(sdu, Some(chan_alloc), self.dltime, dest_addr, None);
+
+                        // Create a fresh receipt/reporter for this re-send
+                        let (new_receipt, reporter) = TxReceipt::new(false);
+                        *receipt = Some(new_receipt);
+
+                        let prim = Self::build_sapmsg(sdu, Some(chan_alloc), self.dltime, dest_addr, Some(reporter));
                         queue.push_back(prim);
                     }
 
@@ -673,7 +696,7 @@ impl CcBsSubentity {
                         tracing::warn!("need to send CLOSE for call id {}", call_id);
                         let ts = circuit.ts;
                         // Get our cached D-SETUP, build D-RELEASE and send
-                        if let Some((pdu, dest_addr)) = self.cached_setups.get(&call_id) {
+                        if let Some((pdu, dest_addr, _)) = self.cached_setups.get(&call_id) {
                             let dest_addr = *dest_addr;
                             let sdu = Self::build_d_release_from_d_setup(pdu, DisconnectCause::ExpiryOfTimer);
                             let prim = Self::build_sapmsg(sdu, None, self.dltime, dest_addr, None);
@@ -728,7 +751,7 @@ impl CcBsSubentity {
 
     /// Release a call: send D-RELEASE, close circuits, clean up state
     fn release_call(&mut self, queue: &mut MessageQueue, call_id: u16, disconnect_cause: DisconnectCause) {
-        let Some((pdu, dest_addr)) = self.cached_setups.get(&call_id) else {
+        let Some((pdu, dest_addr, _)) = self.cached_setups.get(&call_id) else {
             tracing::error!("No cached D-SETUP for call_id={}", call_id);
             return;
         };
@@ -865,7 +888,7 @@ impl CcBsSubentity {
         call.hangtime_start = Some(self.dltime);
 
         // Get dest address from cached setup
-        let Some((_, dest_addr)) = self.cached_setups.get(&call_id) else {
+        let Some((_, dest_addr, _)) = self.cached_setups.get(&call_id) else {
             tracing::error!("No cached D-SETUP for call_id={}", call_id);
             return;
         };
@@ -951,7 +974,7 @@ impl CcBsSubentity {
             *caller_addr = requesting_party;
         }
 
-        let Some((_, dest_addr)) = self.cached_setups.get(&call_id) else {
+        let Some((_, dest_addr, _)) = self.cached_setups.get(&call_id) else {
             tracing::error!("No cached D-SETUP for call_id={}", call_id);
             return;
         };
@@ -1304,12 +1327,15 @@ impl CcBsSubentity {
             proprietary: None,
         };
 
-        // Cache for late-entry re-sends
-        self.cached_setups.insert(call_id, (d_setup, dest_addr.clone()));
-        let (d_setup_ref, _) = self.cached_setups.get(&call_id).unwrap();
+        // Cache for late-entry re-sends. Receipt starts as None so the CircuitMgr-triggered
+        // backup send (within D_SETUP_REPEATS frames) is not throttled by this initial send.
+        // The first re-send via tick_start will create a tracked receipt.
+        let (_initial_receipt, setup_reporter) = TxReceipt::new(false); // group, no ack
+        self.cached_setups.insert(call_id, (d_setup, dest_addr, None));
+        let (d_setup_ref, _, _) = self.cached_setups.get(&call_id).unwrap();
 
         let (setup_sdu, setup_chan_alloc) = Self::build_d_setup_prim(d_setup_ref, usage, ts, UlDlAssignment::Both);
-        let setup_msg = Self::build_sapmsg(setup_sdu, Some(setup_chan_alloc), self.dltime, dest_addr.clone(), None);
+        let setup_msg = Self::build_sapmsg(setup_sdu, Some(setup_chan_alloc), self.dltime, dest_addr, Some(setup_reporter));
         queue.push_back(setup_msg);
 
         // Send D-CONNECT to group
