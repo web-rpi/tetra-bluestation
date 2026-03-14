@@ -93,7 +93,7 @@ reverse_operation = false           # False: UL below DL. True: UL above DL.
 # Location Area identifier
 location_area = 2
 
-# Colour code (0-3), helps distinguish between adjacent cells on the same frequency
+# Colour code (0-63), helps distinguish between adjacent cells on the same frequency
 colour_code = 1
 
 ###############################################################################
@@ -182,6 +182,10 @@ voice_service = true
 # Adaptive jitter buffering is always enabled; this adds fixed startup delay if needed.
 # jitter_initial_latency_frames = 0
 
-# Uncomment to allow only select SSIs to be transmitted over Brew
-# If left commented, all (outside of local_ssi_ranges) are allowed over Brew
+# Enable SDS forwarding between local and Brew clients. Enabled by default. 
+# feature_sds_enabled = true
+
+# Uncomment to allow only calls for select SSIs to be transmitted over Brew
+# SDS works for all SSIs, currently, but the SDS over Brew feature may be fully disabled. 
+# If left commented, all (outside of local_ssi_ranges) calls are allowed over Brew
 # whitelisted_ssis = [91]

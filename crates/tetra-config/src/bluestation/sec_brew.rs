@@ -21,6 +21,9 @@ pub struct CfgBrew {
     /// Extra initial jitter playout delay in frames (added on top of adaptive baseline)
     pub jitter_initial_latency_frames: u8,
 
+    /// Set to true when SDS between local and Brew clients is enabled
+    pub feature_sds_enabled: bool,
+    /// If present, restrict Brew call to these remote SSIs
     pub whitelisted_ssis: Option<Vec<u32>>,
 }
 
@@ -44,7 +47,12 @@ pub struct CfgBrewDto {
     #[serde(default)]
     pub jitter_initial_latency_frames: u8,
 
+    /// If present, restrict Brew call to these remote SSIs
     pub whitelisted_ssis: Option<Vec<u32>>,
+
+    /// Set to true when SDS between local and Brew clients is enabled
+    #[serde(default = "default_brew_feature_sds_enabled")]
+    pub feature_sds_enabled: bool,
 
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,
@@ -58,6 +66,10 @@ fn default_brew_reconnect_delay() -> u64 {
     15
 }
 
+fn default_brew_feature_sds_enabled() -> bool {
+    true
+}
+
 /// Convert a CfgBrewDto (from TOML) into a CfgBrew (used in the stack config)
 pub fn apply_brew_patch(src: CfgBrewDto) -> CfgBrew {
     CfgBrew {
@@ -68,6 +80,7 @@ pub fn apply_brew_patch(src: CfgBrewDto) -> CfgBrew {
         password: Some(src.password),
         reconnect_delay: Duration::from_secs(src.reconnect_delay_secs),
         jitter_initial_latency_frames: src.jitter_initial_latency_frames,
+        feature_sds_enabled: src.feature_sds_enabled,
         whitelisted_ssis: src.whitelisted_ssis,
     }
 }

@@ -404,7 +404,7 @@ impl CcBsSubentity {
 
         let pdu = match USetup::from_bitbuf(&mut prim.sdu) {
             Ok(pdu) => {
-                tracing::debug!("<- U-SETUP {:?}", pdu);
+                tracing::debug!("<- {:?}", pdu);
                 pdu
             }
             Err(e) => {
@@ -856,7 +856,7 @@ impl CcBsSubentity {
 
         let pdu = match UTxCeased::from_bitbuf(&mut prim.sdu) {
             Ok(pdu) => {
-                tracing::debug!("<- U-TX CEASED {:?}", pdu);
+                tracing::debug!("<- {:?}", pdu);
                 pdu
             }
             Err(e) => {
@@ -944,7 +944,7 @@ impl CcBsSubentity {
 
         let pdu = match UTxDemand::from_bitbuf(&mut prim.sdu) {
             Ok(pdu) => {
-                tracing::debug!("<- U-TX DEMAND {:?}", pdu);
+                tracing::debug!("<- {:?}", pdu);
                 pdu
             }
             Err(e) => {
@@ -1050,7 +1050,7 @@ impl CcBsSubentity {
 
         let pdu = match URelease::from_bitbuf(&mut prim.sdu) {
             Ok(pdu) => {
-                tracing::debug!("<- U-RELEASE {:?}", pdu);
+                tracing::debug!("<- {:?}", pdu);
                 pdu
             }
             Err(e) => {
@@ -1078,7 +1078,7 @@ impl CcBsSubentity {
 
         let pdu = match UDisconnect::from_bitbuf(&mut prim.sdu) {
             Ok(pdu) => {
-                tracing::debug!("<- U-DISCONNECT {:?}", pdu);
+                tracing::debug!("<- {:?}", pdu);
                 pdu
             }
             Err(e) => {

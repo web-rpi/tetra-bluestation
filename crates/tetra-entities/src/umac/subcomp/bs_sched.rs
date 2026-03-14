@@ -202,7 +202,8 @@ impl BsChannelScheduler {
     pub fn set_system_wide_services_state(&mut self, enabled: bool) {
         if self.precomps.mle_sysinfo.bs_service_details.system_wide_services != enabled {
             self.precomps.mle_sysinfo.bs_service_details.system_wide_services = enabled;
-            tracing::info!(
+            // Should already be signalled at SwMI interface level
+            tracing::debug!(
                 "BsChannelScheduler: system_wide_services {}",
                 if enabled { "ENABLED" } else { "DISABLED" }
             );

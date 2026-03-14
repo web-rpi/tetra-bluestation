@@ -3,7 +3,7 @@ use std::panic;
 use tetra_config::bluestation::SharedConfig;
 use tetra_core::freqs::FreqInfo;
 use tetra_core::tetra_entities::TetraEntity;
-use tetra_core::{BitBuffer, Direction, PhyBlockNum, Sap, SsiType, TdmaTime, TetraAddress, Todo, assert_warn, unimplemented_log};
+use tetra_core::{BitBuffer, Direction, PhyBlockNum, Sap, SsiType, TdmaTime, TetraAddress, Todo, unimplemented_log};
 use tetra_pdus::mle::fields::bs_service_details::BsServiceDetails;
 use tetra_pdus::mle::pdus::d_mle_sync::DMleSync;
 use tetra_pdus::mle::pdus::d_mle_sysinfo::DMleSysinfo;
@@ -222,11 +222,9 @@ impl UmacBs {
         if is_effective != self.system_wide_services {
             self.system_wide_services = is_effective;
             self.channel_scheduler.set_system_wide_services_state(is_effective);
-            if is_effective {
-                tracing::info!("UmacBs: system_wide_services ENABLED");
-            } else {
-                tracing::warn!("UmacBs: system_wide_services DISABLED");
-            }
+
+            // Should already be signalled at SwMI interface level
+            tracing::debug!("UmacBs: system_wide_services {}", if is_effective { "ENABLED" } else { "DISABLED" });
         }
     }
 
@@ -916,7 +914,8 @@ impl UmacBs {
         // Will have either length_ind or reservation_req, never none or both
         let mut pdu_len_bits = if let Some(length_ind) = pdu.length_ind {
             if length_ind == 0 {
-                assert_warn!(false, "rx_mac_end_hu: PDU has length ind 0");
+                // Table 21.44: length indication 0 is reserved, discard PDU
+                tracing::debug!("rx_mac_end_hu: discarding PDU with reserved length indication 0");
                 return;
             }
             let len = length_ind as usize * 8;
@@ -1095,7 +1094,7 @@ impl UmacBs {
         unimplemented!();
     }
 
-    fn rx_ul_tma_unitdata_req(&mut self, queue: &mut MessageQueue, message: SapMsg) {
+    fn rx_ul_tma_unitdata_req(&mut self, _queue: &mut MessageQueue, message: SapMsg) {
         tracing::trace!("rx_ul_tma_unitdata_req");
 
         // Extract sdu
@@ -1160,7 +1159,7 @@ impl UmacBs {
                 );
 
                 self.channel_scheduler.dl_enqueue_stealing(ts, stch_block, prim.tx_reporter);
-                Self::send_tma_report_ind(queue, message.dltime, prim.req_handle, TmaReport::SuccessDownlinked);
+
                 return;
             } else {
                 tracing::warn!("rx_ul_tma_unitdata_req: stealing requested but no active DL circuit, falling back to MCCH");
@@ -1198,24 +1197,16 @@ impl UmacBs {
         };
         pdu.update_len_and_fill_ind(sdu.get_len());
 
-        // Add to scheduler: Group signaling (GSSI) → TS1 (MCCH).
-        // Individual signaling with no LLC link context (link_id == 0) → TS1 (MCCH),
-        // since the MS is listening on the control channel during setup/teardown.
-        // Otherwise, use current TS, avoiding active traffic circuits.
-        let enqueue_ts = if prim.main_address.ssi_type == SsiType::Gssi {
-            1 // Group signaling always on MCCH (TS1)
-        // } else if prim.link_id == 0 {
-        //     1 // No LLC link context, force MCCH
-        } else if self.channel_scheduler.circuit_is_active(Direction::Dl, message.dltime.t) {
-            1 // Redirect individual signaling away from traffic TS
-        } else {
-            message.dltime.t
-        };
+        // // Per ETSI EN 300 392-2 Clause 23.3.1.1.2: idle MSes monitor the MCCH (slot 1)
+        // // for signaling. Without common SCCHs, all MSes listen on slot 1.
+        // // All signaling on the normal path (non-FACCH) must go to the MCCH.
+        if message.dltime.t != 1 {
+            tracing::warn!("rx_ul_tma_unitdata_req: signaling scheduled for non-MCCH {}", message.dltime.t);
+        }
+        self.channel_scheduler.dl_enqueue_tma(message.dltime.t, pdu, sdu, prim.tx_reporter);
 
-        self.channel_scheduler.dl_enqueue_tma(enqueue_ts, pdu, sdu, prim.tx_reporter);
-
-        // TODO FIXME I'm not so sure whether we should send this now, or send it once the message is on its way
-        Self::send_tma_report_ind(queue, message.dltime, prim.req_handle, TmaReport::SuccessDownlinked);
+        // let enqueue_ts = 1;
+        // self.channel_scheduler.dl_enqueue_tma(enqueue_ts, pdu, sdu, prim.tx_reporter);
     }
 
     fn rx_tma_prim(&mut self, queue: &mut MessageQueue, message: SapMsg) {
