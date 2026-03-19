@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::panic;
 
 use crate::{MessageQueue, TetraEntityTrait};
@@ -20,6 +20,10 @@ use tetra_pdus::llc::pdus::bl_ack::BlAck;
 use tetra_pdus::llc::pdus::bl_adata::BlAdata;
 use tetra_pdus::llc::pdus::bl_data::BlData;
 use tetra_pdus::llc::pdus::bl_udata::BlUdata;
+
+/// Allow the call-setup downlink pair (for example D-CALL-PROCEEDING plus
+/// D-CONNECT) to be transmitted back-to-back before the first ACK returns.
+const MAX_OUTSTANDING_ACKED_PER_SSI: usize = 2;
 
 /// Struct that maintains state expected acknowledgement data for a transmitted message.
 /// Aka, we still expect an ack for this.
@@ -68,9 +72,8 @@ pub struct Llc {
     /// integration into a response message, or we will make a separate BL-ACK for it.
     scheduled_out_acks: VecDeque<ScheduledOutAck>,
 
-    /// Outbound messages, that are either already submitted to the Umac, and wait for ack,
-    /// or, messages that can't be sent until previous messages for the same SSI have been
-    /// acknowledged, first.
+    /// Outbound messages that already wait for an ACK, or are queued until the
+    /// basic link has room for another outstanding acknowledged message.
     outbound_messages: VecDeque<ExpectedInAck>,
 
     /// Per-link send sequence variable per SSI. Alternates between 0 and 1.
@@ -119,11 +122,11 @@ impl Llc {
         ns
     }
 
-    /// Returns and removes the expected ACK entry for the given SSI, if any
-    fn take_expected_ack_for_ssi(&mut self, ssi: u32) -> Option<ExpectedInAck> {
+    /// Returns and removes the submitted expected ACK entry for the given SSI + N(S), if any
+    fn take_expected_ack_for_ssi_and_ns(&mut self, ssi: u32, ns: u8) -> Option<ExpectedInAck> {
         for i in 0..self.outbound_messages.len() {
             let msg = &self.outbound_messages[i];
-            if msg.addr.ssi == ssi && msg.t_submitted_to_umac.is_some() {
+            if msg.addr.ssi == ssi && msg.ns == ns && msg.t_submitted_to_umac.is_some() {
                 return self.outbound_messages.remove(i);
             }
         }
@@ -134,7 +137,7 @@ impl Llc {
     /// Matches by SSI and N(R) so that retransmitted BL-DATA entries are matched correctly.
     fn process_incoming_ack(&mut self, addr: TetraAddress, nr: u8) {
         // Get the expected ACK entry
-        let Some(expected_ack) = self.take_expected_ack_for_ssi(addr.ssi) else {
+        let Some(expected_ack) = self.take_expected_ack_for_ssi_and_ns(addr.ssi, nr) else {
             tracing::warn!("received unexpected ACK for SSI {} N(R) {}", addr.ssi, nr);
             return;
         };
@@ -597,7 +600,7 @@ impl Llc {
     fn submit_retransmissions_to_umac(&mut self, queue: &mut MessageQueue) -> bool {
         let mut had_activity = false;
         let dltime = self.dltime;
-        let mut removals: Option<Vec<u32>> = None;
+        let mut removals: Option<Vec<(u32, u8)>> = None;
 
         // if !self.outbound_messages.is_empty() {
         //     tracing::error!("{}", Self::format_expected_ack_list(&self.outbound_messages));
@@ -635,15 +638,15 @@ impl Llc {
                     had_activity = true;
                 } else {
                     // Exhausted retransmissions, flag for discard
-                    removals.get_or_insert(Vec::new()).push(ack.addr.ssi);
+                    removals.get_or_insert(Vec::new()).push((ack.addr.ssi, ack.ns));
                 }
             }
         }
 
         // Remove any expired entries
         if let Some(removals) = removals {
-            for ssi in removals {
-                let ack = self.take_expected_ack_for_ssi(ssi).unwrap(); // Never fails
+            for (ssi, ns) in removals {
+                let ack = self.take_expected_ack_for_ssi_and_ns(ssi, ns).unwrap(); // Never fails
                 tracing::warn!(
                     "schedule_retransmissions: SSI {} N(S) {} exhausted retransmissions",
                     ack.addr.ssi,
@@ -659,30 +662,34 @@ impl Llc {
 
     fn submit_free_messages_to_umac(&mut self, queue: &mut MessageQueue) -> bool {
         let mut had_activity = false;
-        let mut ssi_blocked: HashSet<u32> = HashSet::new();
+        let mut outstanding_per_ssi: HashMap<u32, usize> = HashMap::new();
+
+        for ack in self.outbound_messages.iter() {
+            if ack.t_submitted_to_umac.is_some() {
+                *outstanding_per_ssi.entry(ack.addr.ssi).or_insert(0) += 1;
+            }
+        }
+
         for ack in self.outbound_messages.iter_mut() {
             // Check if already submitted to umac
             if ack.t_submitted_to_umac.is_some() {
-                // This ssi currently waits for an ack, and is thus blocked
-                ssi_blocked.insert(ack.addr.ssi);
                 continue;
             }
 
-            // Not submitted; check if blocked
-            if ssi_blocked.contains(&ack.addr.ssi) {
-                // SSI already has another message waiting for ack, so we cannot submit this one yet
+            let outstanding = outstanding_per_ssi.entry(ack.addr.ssi).or_insert(0);
+            if *outstanding >= MAX_OUTSTANDING_ACKED_PER_SSI {
                 tracing::debug!(
-                    "SSI {} N(S) {} still blocked by previous message, cannot submit next message",
+                    "SSI {} N(S) {} still blocked with {} outstanding acknowledged messages",
                     ack.addr.ssi,
-                    ack.ns
+                    ack.ns,
+                    *outstanding
                 );
                 continue;
             }
 
-            // Not submitted and not blocked. We can submit it now.
             tracing::debug!("submitting message for SSI {} N(S) {} to umac", ack.addr.ssi, ack.ns);
             Self::submit_for_acknowledged_transmission(queue, ack, self.dltime.forward_to_timeslot(ack.t_first.t));
-            ssi_blocked.insert(ack.addr.ssi);
+            *outstanding += 1;
             had_activity = true;
         }
 

@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use tetra_config::bluestation::SharedConfig;
 use tetra_core::{BitBuffer, Direction, Sap, SsiType, TdmaTime, TetraAddress, tetra_entities::TetraEntity, unimplemented_log};
-use tetra_core::{TimeslotOwner, TxReporter, TxState};
+use tetra_core::{TimeslotOwner, TxReporter};
 use tetra_pdus::cmce::enums::disconnect_cause::DisconnectCause;
 use tetra_pdus::cmce::{
     enums::{
@@ -83,6 +83,11 @@ struct ActiveCall {
 }
 
 impl CcBsSubentity {
+    /// Active speaker has the floor; further requests are not advertised via this bit.
+    const TX_REQUEST_PERMISSION_ACTIVE_TX: bool = false;
+    /// Hangtime / idle on the call: MXP600 only re-requests PTT reliably when this bit is set.
+    const TX_REQUEST_PERMISSION_HANGTIME: bool = true;
+
     pub fn new(config: SharedConfig) -> Self {
         CcBsSubentity {
             config,
@@ -493,7 +498,7 @@ impl CcBsSubentity {
             hook_method_selection: pdu.hook_method_selection,
             simplex_duplex_selection: pdu.simplex_duplex_selection,
             transmission_grant: TransmissionGrant::Granted,
-            transmission_request_permission: false,
+            transmission_request_permission: Self::TX_REQUEST_PERMISSION_ACTIVE_TX,
             call_ownership: true, // Calling MS is the call owner (ETSI 14.8.4)
             call_priority: None,
             basic_service_information: None,
@@ -545,7 +550,7 @@ impl CcBsSubentity {
             simplex_duplex_selection: pdu.simplex_duplex_selection,
             basic_service_information: pdu.basic_service_information.clone(),
             transmission_grant: TransmissionGrant::GrantedToOtherUser,
-            transmission_request_permission: false,
+            transmission_request_permission: Self::TX_REQUEST_PERMISSION_ACTIVE_TX,
             call_priority: pdu.call_priority,
             notification_indicator: None,
             temporary_address: None,
@@ -649,44 +654,26 @@ impl CcBsSubentity {
                 match task {
                     CircuitMgrCmd::SendDSetup(call_id, usage, ts) => {
                         // Get our cached D-SETUP, build a prim and send it down the stack
-                        let Some((pdu, dest_addr, receipt)) = self.cached_setups.get_mut(&call_id) else {
+                        let Some((pdu, dest_addr, _receipt)) = self.cached_setups.get_mut(&call_id) else {
                             tracing::error!("No cached D-SETUP for call id {}", call_id);
                             continue;
                         };
-
-                        // Throttle: if the previous D-SETUP hasn't reached a final state yet
-                        // (still queued in UMAC), skip this re-send to avoid flooding the MCCH.
-                        if let Some(r) = receipt.as_ref() {
-                            if !r.is_in_final_state() {
-                                tracing::trace!(
-                                    "Suppressing D-SETUP re-send for call_id={} (previous still {:?})",
-                                    call_id,
-                                    r.get_state()
-                                );
-                                continue;
-                            }
-                            if r.get_state() == TxState::Discarded {
-                                tracing::debug!("Previous D-SETUP for call_id={} was discarded by UMAC, retrying", call_id);
-                            }
-                        }
 
                         // Update transmission_grant based on current call state:
                         // During hangtime (nobody transmitting), use NotGranted;
                         // during active TX, use GrantedToOtherUser.
                         if let Some(active) = self.active_calls.get(&call_id) {
-                            pdu.transmission_grant = if active.tx_active {
-                                TransmissionGrant::GrantedToOtherUser
+                            if active.tx_active {
+                                pdu.transmission_grant = TransmissionGrant::GrantedToOtherUser;
+                                pdu.transmission_request_permission = Self::TX_REQUEST_PERMISSION_ACTIVE_TX;
                             } else {
-                                TransmissionGrant::NotGranted
-                            };
+                                pdu.transmission_grant = TransmissionGrant::NotGranted;
+                                pdu.transmission_request_permission = Self::TX_REQUEST_PERMISSION_HANGTIME;
+                            }
                         }
                         let dest_addr = *dest_addr;
                         let (sdu, chan_alloc) = Self::build_d_setup_prim(pdu, usage, ts, UlDlAssignment::Both);
-
-                        // Create a fresh txreporter for this re-send
-                        let reporter = TxReporter::new();
-
-                        let prim = Self::build_sapmsg(sdu, Some(chan_alloc), self.dltime, dest_addr, Some(reporter));
+                        let prim = Self::build_sapmsg(sdu, Some(chan_alloc), self.dltime, dest_addr, None);
                         queue.push_back(prim);
                     }
 
@@ -895,7 +882,7 @@ impl CcBsSubentity {
         // Send D-TX CEASED via FACCH (stealing) to all group members
         let d_tx_ceased = DTxCeased {
             call_identifier: call_id,
-            transmission_request_permission: false, // ETSI 14.8.43: 0 = allowed to request transmission
+            transmission_request_permission: Self::TX_REQUEST_PERMISSION_HANGTIME,
             notification_indicator: None,
             facility: None,
             dm_ms_address: None,
@@ -982,7 +969,7 @@ impl CcBsSubentity {
         let d_tx_granted_individual = DTxGranted {
             call_identifier: call_id,
             transmission_grant: TransmissionGrant::Granted.into_raw() as u8,
-            transmission_request_permission: false,
+            transmission_request_permission: Self::TX_REQUEST_PERMISSION_ACTIVE_TX,
             encryption_control: false,
             reserved: false,
             notification_indicator: None,
@@ -1316,7 +1303,7 @@ impl CcBsSubentity {
                 speech_service: Some(0),
             },
             transmission_grant: TransmissionGrant::GrantedToOtherUser,
-            transmission_request_permission: false,
+            transmission_request_permission: Self::TX_REQUEST_PERMISSION_ACTIVE_TX,
             call_priority: 0,
             notification_indicator: None,
             temporary_address: None,
@@ -1345,7 +1332,7 @@ impl CcBsSubentity {
             hook_method_selection: false,
             simplex_duplex_selection: false, // Simplex
             transmission_grant: TransmissionGrant::GrantedToOtherUser,
-            transmission_request_permission: false,
+            transmission_request_permission: Self::TX_REQUEST_PERMISSION_ACTIVE_TX,
             call_ownership: false,
             call_priority: None,
             basic_service_information: None,
@@ -1464,7 +1451,7 @@ impl CcBsSubentity {
         let pdu = DTxGranted {
             call_identifier: call_id,
             transmission_grant: TransmissionGrant::GrantedToOtherUser.into_raw() as u8,
-            transmission_request_permission: false,
+            transmission_request_permission: Self::TX_REQUEST_PERMISSION_ACTIVE_TX,
             encryption_control: false,
             reserved: false,
             notification_indicator: None,
@@ -1537,7 +1524,7 @@ impl CcBsSubentity {
     fn send_d_tx_ceased_facch(&mut self, queue: &mut MessageQueue, call_id: u16, dest_gssi: u32, ts: u8) {
         let pdu = DTxCeased {
             call_identifier: call_id,
-            transmission_request_permission: false, // ETSI 14.8.43: 0 = allowed to request transmission
+            transmission_request_permission: Self::TX_REQUEST_PERMISSION_HANGTIME,
             notification_indicator: None,
             facility: None,
             dm_ms_address: None,
