@@ -5,24 +5,62 @@ use tetra_saps::{SapMsg, SapMsgInner, tla::TlaTlUnitdataReqBl};
 
 use crate::{MessageQueue, mle::components::network_time};
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BroadcastType {
+    /// Initial value and value when no broadcast types are enabled
+    None,
+    NetworkTime,
+}
+
 pub struct MleBroadcast {
     config: SharedConfig,
+    last_broadcast_type: BroadcastType,
+    time_broadcast: Option<String>,
 }
 
 impl MleBroadcast {
     pub fn new(config: SharedConfig) -> Self {
-        Self { config }
+        let time_broadcast = config.config().cell.timezone.clone();
+        Self {
+            config,
+            last_broadcast_type: BroadcastType::None,
+            time_broadcast,
+        }
     }
 
-    pub fn send_broadcast(&self, queue: &mut MessageQueue, ts: TdmaTime, tz: &str) {
-        // TODO implement logic for choosing next appropriate broadcast type
-        // Then call that type
-        self.send_d_nwrk_broadcast(queue, ts, tz);
+    /// Send the next broadcast message based on the configured broadcast types and internal state.
+    pub fn send_broadcast(&mut self, queue: &mut MessageQueue, ts: TdmaTime) {
+        let broadcast_type = self.determine_next_broadcast_type();
+        self.last_broadcast_type = broadcast_type;
+
+        match broadcast_type {
+            BroadcastType::NetworkTime => {
+                self.send_d_nwrk_broadcast(queue, ts);
+            }
+            BroadcastType::None => {
+                // No broadcast to send
+            }
+        }
     }
 
-    fn send_d_nwrk_broadcast(&self, queue: &mut MessageQueue, ts: TdmaTime, tz: &str) {
+    /// Deterines the next type for the next broadcast message
+    fn determine_next_broadcast_type(&self) -> BroadcastType {
+        match self.last_broadcast_type {
+            BroadcastType::None => {
+                if self.time_broadcast.is_some() {
+                    BroadcastType::NetworkTime
+                } else {
+                    BroadcastType::None
+                }
+            }
+            BroadcastType::NetworkTime => BroadcastType::NetworkTime,
+        }
+    }
+
+    fn send_d_nwrk_broadcast(&self, queue: &mut MessageQueue, ts: TdmaTime) {
         // Timezone is validated at config parse time, so encode cannot fail here
-        let time_value = network_time::encode_tetra_network_time(tz).expect("timezone was validated at config parse time");
+        let tz = self.time_broadcast.as_deref().unwrap();
+        let time_value = network_time::encode_tetra_network_time(tz).unwrap();
 
         let pdu = DNwrkBroadcast {
             cell_re_select_parameters: 0,

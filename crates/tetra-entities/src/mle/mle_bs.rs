@@ -420,9 +420,7 @@ impl TetraEntityTrait for MleBs {
         // Use a constant multiframe/frame offset to avoid congestion with other
         // hyperframe-triggered events.
         if ts.m == MLE_BROADCAST_MULTIFRAME && ts.f == MLE_BROADCAST_FRAME && ts.t == 1 {
-            if let Some(ref tz) = self.config.config().cell.timezone {
-                self.broadcast.send_broadcast(queue, ts, tz);
-            }
+            self.broadcast.send_broadcast(queue, ts);
         }
     }
 
