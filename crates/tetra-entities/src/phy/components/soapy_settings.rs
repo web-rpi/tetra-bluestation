@@ -1,22 +1,10 @@
 //! Device-specific SoapySDR settings
 
-use tetra_config::bluestation::sec_phy_soapy::*;
-
-/// Performance for some SDRs can be optimized by using different settings
-/// for different operating modes of the stack.
-/// For BS or MS mode, we want low latency at a fairly low sample rate.
-/// For monitor mode, a high sample rate is needed,
-/// so we want to maximize throughput, but latency is not critical.
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub enum Mode {
-    Bs,
-    Ms,
-    Mon,
-}
+use tetra_config::bluestation::{StackMode, sec_phy_soapy::*};
 
 #[derive(Clone, Debug)]
 pub struct SdrSettings {
-    /// Name used to print which SDR was detected
+    /// Settings template, holding which SDR is used
     pub name: String,
     /// If false, timestamp of latest RX read is used to estimate
     /// current hardware time. This is used in case get_hardware_time
@@ -45,7 +33,7 @@ pub struct SdrSettings {
 /// must be known before opening the device,
 /// whereas SdrSettings may depend on information
 /// that is obtained after the device has been opened.
-pub fn get_device_arguments(io_cfg: &SoapySdrIoCfg, _mode: Mode) -> Vec<(String, String)> {
+pub fn get_device_arguments(io_cfg: &SoapySdrIoCfg, _mode: StackMode) -> Vec<(String, String)> {
     let mut args = Vec::<(String, String)>::new();
 
     let driver = io_cfg.get_soapy_driver_name();
@@ -78,10 +66,10 @@ pub fn get_device_arguments(io_cfg: &SoapySdrIoCfg, _mode: Mode) -> Vec<(String,
 
 impl SdrSettings {
     /// Get settings based on SDR type
-    pub fn get_settings(io_cfg: &SoapySdrIoCfg, driver_key: &str, hardware_key: &str, mode: Mode) -> Self {
+    pub fn get_settings(io_cfg: &SoapySdrIoCfg, driver_key: &str, hardware_key: &str, mode: StackMode) -> Self {
         match (driver_key, hardware_key) {
-            (_, "LimeSDR-USB") => Self::settings_limesdr(&io_cfg.iocfg_limesdr, mode, LimeSDRModel::LimeSDR),
-            (_, "LimeSDR-Mini_v2") => Self::settings_limesdr(&io_cfg.iocfg_limesdr, mode, LimeSDRModel::LimeSDRMini),
+            (_, "LimeSDR-USB") => Self::settings_limesdr(&io_cfg.iocfg_limesdr, mode, LimeSDRModel::LimeSdrUsb),
+            (_, "LimeSDR-Mini_v2") => Self::settings_limesdr(&io_cfg.iocfg_limesdr, mode, LimeSDRModel::LimeSdrMiniV2),
 
             ("sx", _) => Self::settings_sxceiver(&io_cfg.iocfg_sxceiver),
 
@@ -93,11 +81,11 @@ impl SdrSettings {
         }
     }
 
-    fn unknown(mode: Mode) -> Self {
+    fn unknown(mode: StackMode) -> Self {
         SdrSettings {
             name: "Unknown SDR device".to_string(),
             use_get_hardware_time: true,
-            fs: if mode == Mode::Mon { 16384e3 } else { 512e3 },
+            fs: if mode == StackMode::Mon { 16384e3 } else { 512e3 },
             rx_ant: None,
             tx_ant: None,
             rx_gain: vec![],
@@ -107,20 +95,20 @@ impl SdrSettings {
         }
     }
 
-    fn settings_limesdr(cfg: &Option<CfgLimeSdr>, mode: Mode, model: LimeSDRModel) -> Self {
+    fn settings_limesdr(cfg: &Option<CfgLimeSdr>, mode: StackMode, model: LimeSDRModel) -> Self {
         // If cfg is None, use default which sets all optional fields to None.
         let cfg = if let Some(cfg) = cfg { &cfg } else { &CfgLimeSdr::default() };
 
         SdrSettings {
             name: format!("{:?}", model),
             use_get_hardware_time: true,
-            fs: if mode == Mode::Mon { 16384e3 } else { 512e3 },
+            fs: if mode == StackMode::Mon { 16384e3 } else { 512e3 },
 
             rx_ant: Some(
                 cfg.rx_ant.clone().unwrap_or(
                     match model {
-                        LimeSDRModel::LimeSDR => "LNAL",
-                        LimeSDRModel::LimeSDRMini => "LNAW",
+                        LimeSDRModel::LimeSdrUsb => "LNAL",
+                        LimeSDRModel::LimeSdrMiniV2 => "LNAW",
                     }
                     .to_string(),
                 ),
@@ -128,8 +116,8 @@ impl SdrSettings {
             tx_ant: Some(
                 cfg.tx_ant.clone().unwrap_or(
                     match model {
-                        LimeSDRModel::LimeSDR => "BAND1",
-                        LimeSDRModel::LimeSDRMini => "BAND2",
+                        LimeSDRModel::LimeSdrUsb => "BAND1",
+                        LimeSDRModel::LimeSdrMiniV2 => "BAND2",
                     }
                     .to_string(),
                 ),
@@ -146,8 +134,8 @@ impl SdrSettings {
             ],
 
             // Minimum latency for BS/MS, maximum throughput for monitor
-            rx_args: vec![("latency".to_string(), if mode == Mode::Mon { "1" } else { "0" }.to_string())],
-            tx_args: vec![("latency".to_string(), if mode == Mode::Mon { "1" } else { "0" }.to_string())],
+            rx_args: vec![("latency".to_string(), if mode == StackMode::Mon { "1" } else { "0" }.to_string())],
+            tx_args: vec![("latency".to_string(), if mode == StackMode::Mon { "1" } else { "0" }.to_string())],
         }
     }
 
@@ -178,14 +166,14 @@ impl SdrSettings {
         }
     }
 
-    fn settings_usrp_b2x0(cfg: &Option<CfgUsrpB2xx>, mode: Mode) -> Self {
+    fn settings_usrp_b2x0(cfg: &Option<CfgUsrpB2xx>, mode: StackMode) -> Self {
         // If cfg is None, use default which sets all optional fields to None.
         let cfg = if let Some(cfg) = cfg { &cfg } else { &CfgUsrpB2xx::default() };
 
         SdrSettings {
             name: "USRP B200/B210".to_string(),
             use_get_hardware_time: true,
-            fs: if mode == Mode::Mon { 16384e3 } else { 512e3 },
+            fs: if mode == StackMode::Mon { 16384e3 } else { 512e3 },
 
             rx_ant: Some(cfg.rx_ant.clone().unwrap_or("TX/RX".to_string())),
             tx_ant: Some(cfg.tx_ant.clone().unwrap_or("TX/RX".to_string())),
@@ -198,14 +186,14 @@ impl SdrSettings {
         }
     }
 
-    fn settings_pluto(cfg: &Option<CfgPluto>, mode: Mode) -> Self {
+    fn settings_pluto(cfg: &Option<CfgPluto>, mode: StackMode) -> Self {
         // If cfg is None, use default which sets all optional fields to None.
         let cfg = if let Some(cfg) = cfg { &cfg } else { &CfgPluto::default() };
 
         SdrSettings {
             name: "Pluto".to_string(),
             use_get_hardware_time: false,
-            fs: if mode == Mode::Mon { 1e6 } else { 1e6 },
+            fs: if mode == StackMode::Mon { 1e6 } else { 1e6 },
 
             rx_ant: Some(cfg.rx_ant.clone().unwrap_or("A_BALANCED".to_string())),
             tx_ant: Some(cfg.tx_ant.clone().unwrap_or("A".to_string())),
@@ -221,8 +209,8 @@ impl SdrSettings {
 
 #[derive(Debug, PartialEq)]
 enum LimeSDRModel {
-    LimeSDR,
-    LimeSDRMini,
+    LimeSdrUsb,
+    LimeSdrMiniV2,
 }
 
 /// Get processing block size in samples for a given sample rate.

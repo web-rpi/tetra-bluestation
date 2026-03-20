@@ -1,15 +1,16 @@
 use soapysdr;
 use tetra_config::bluestation::SharedConfig;
 
+use tetra_config::bluestation::StackMode;
 use tetra_pdus::phy::traits::rxtx_dev::RxTxDevError;
 
 use super::dsp_types::*;
 use super::soapy_settings;
-pub use super::soapy_settings::Mode;
 use super::soapy_settings::SdrSettings;
 use super::soapy_time::{ticks_to_time_ns, time_ns_to_ticks};
 
 type StreamType = ComplexSample;
+const SOAPY_FREQ_OFFSET: f64 = 20000.0;
 
 pub struct RxResult {
     /// Number of samples read
@@ -60,7 +61,7 @@ macro_rules! soapycheck {
 }
 
 impl SoapyIo {
-    pub fn new(cfg: &SharedConfig, mode: Mode) -> Result<Self, soapysdr::Error> {
+    pub fn new(cfg: &SharedConfig) -> Result<Self, soapysdr::Error> {
         let rx_ch = 0;
         let tx_ch = 0;
 
@@ -75,16 +76,17 @@ impl SoapyIo {
         let (dl_corrected, _) = soapy_cfg.dl_freq_corrected();
         let (ul_corrected, _) = soapy_cfg.ul_freq_corrected();
 
+        let mode = cfg.config().stack_mode;
         let (rx_freq, tx_freq) = match mode {
-            Mode::Bs => (
-                Some(ul_corrected - 20000.0), // Offset RX center frequency from carrier frequency
+            StackMode::Bs => (
+                Some(ul_corrected - SOAPY_FREQ_OFFSET), // Offset RX center frequency from carrier frequency
                 Some(dl_corrected),
             ),
-            Mode::Ms => (
-                Some(dl_corrected - 20000.0), // Offset RX center frequency from carrier frequency
+            StackMode::Ms => (
+                Some(dl_corrected - SOAPY_FREQ_OFFSET), // Offset RX center frequency from carrier frequency
                 Some(ul_corrected),
             ),
-            Mode::Mon => {
+            StackMode::Mon => {
                 unimplemented!("Monitor mode not implemented yet");
             }
         };
@@ -113,7 +115,7 @@ impl SoapyIo {
             hardware_key,
             sdr_settings.name,
         );
-        tracing::info!("Using SDR settings: {:?}", sdr_settings);
+        tracing::info!("Using: {:?}", sdr_settings);
 
         let mut rx_fs: f64 = 0.0;
         if rx_enabled {
