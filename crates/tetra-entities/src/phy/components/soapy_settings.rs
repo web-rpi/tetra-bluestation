@@ -88,7 +88,6 @@ impl SdrSettings {
             ("b200", "B210") | ("uhd", "B210") => Self::settings_usrp(&io_cfg.iocfg_usrpb2xx, mode, UsrpModel::B210),
             ("b200", _) | ("uhd", _) => Self::settings_usrp(&io_cfg.iocfg_usrpb2xx, mode, UsrpModel::Other),
             // TODO: add other USRP models if needed
-
             ("PlutoSDR", _) => Self::settings_pluto(&io_cfg.iocfg_pluto, mode),
 
             _ => Self::unknown(mode),
@@ -146,7 +145,8 @@ impl SdrSettings {
                 LimeSdrModel::LimeNetMicro => "LimeNET Micro",
                 LimeSdrModel::OtherFx3 => "Unknown LimeSDR model with FX3",
                 LimeSdrModel::OtherFt601 => "Unknown LimeSDR model with FT601",
-            }.to_string(),
+            }
+            .to_string(),
 
             rx_ant: Some(
                 cfg.rx_ant.clone().unwrap_or(
@@ -224,7 +224,8 @@ impl SdrSettings {
                 UsrpModel::B200 => "USRP B200",
                 UsrpModel::B210 => "USRP B210",
                 UsrpModel::Other => "Unknown USRP model",
-            }.to_string(),
+            }
+            .to_string(),
 
             rx_ant: Some(cfg.rx_ant.clone().unwrap_or("TX/RX".to_string())),
             tx_ant: Some(cfg.tx_ant.clone().unwrap_or("TX/RX".to_string())),
