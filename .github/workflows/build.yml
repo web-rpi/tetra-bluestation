@@ -20,6 +20,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Allow Git metadata in workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
       # 2. Setup environment for x86_64
       - name: Setup environment
         if: matrix.arch == 'x86_64'
@@ -86,7 +89,9 @@ jobs:
       # 7. Build binaries
       - name: Build release binary x86_64
         if: matrix.arch == 'x86_64'
-        run: cargo build --release --target x86_64-unknown-linux-gnu
+        run: |
+          cargo clean -p tetra-core
+          cargo build --release --target x86_64-unknown-linux-gnu
 
       - name: Build release binary ARM64 in Docker + QEMU
         if: matrix.arch != 'x86_64'
@@ -100,10 +105,12 @@ jobs:
             apt update
             apt install -y build-essential pkg-config libsoapysdr-dev libasound2-dev clang llvm-dev libclang-dev python3-soapysdr curl git jq
             cd /src
+            git config --global --add safe.directory /src
             curl https://sh.rustup.rs -sSf | sh -s -- -y
             source \$HOME/.cargo/env
             rustup target add aarch64-unknown-linux-gnu
             $CPU_FLAGS
+            cargo clean -p tetra-core
             cargo build --release --target aarch64-unknown-linux-gnu
           "
         shell: bash
