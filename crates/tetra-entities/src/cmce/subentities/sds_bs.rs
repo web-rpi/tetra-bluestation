@@ -272,7 +272,7 @@ impl SdsBsSubentity {
         queue: &mut MessageQueue,
         dltime: tetra_core::TdmaTime,
         source_issi: u32,
-        dest_issi: u32,
+        dest_ssi: u32,
         dest_ssi_type: SsiType,
         user_defined_data: SdsUserData,
     ) {
@@ -294,7 +294,12 @@ impl SdsBsSubentity {
         }
         sdu.seek(0);
 
-        let dest_addr = TetraAddress::new(dest_issi, dest_ssi_type);
+        let dest_addr = TetraAddress::new(dest_ssi, dest_ssi_type);
+        let layer2service = match dest_ssi_type {
+            SsiType::Issi => Layer2Service::Acknowledged,
+            SsiType::Gssi => Layer2Service::Unacknowledged,
+            _ => panic!(),
+        };
         let msg = SapMsg {
             sap: Sap::LcmcSap,
             src: TetraEntity::Cmce,
@@ -305,7 +310,7 @@ impl SdsBsSubentity {
                 handle: 0,
                 endpoint_id: 0,
                 link_id: 0,
-                layer2service: Layer2Service::Todo,
+                layer2service,
                 pdu_prio: 0,
                 layer2_qos: 0,
                 stealing_permission: false,
