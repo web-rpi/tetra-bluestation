@@ -3,7 +3,7 @@ use crate::net_telemetry::channel::TelemetrySink;
 use crate::{MessageQueue, TetraEntityTrait, net_brew};
 use tetra_config::bluestation::SharedConfig;
 use tetra_core::tetra_entities::TetraEntity;
-use tetra_core::{BitBuffer, Layer2Service, Sap, SsiType, TdmaTime, TetraAddress, assert_warn, unimplemented_log};
+use tetra_core::{BitBuffer, Layer2Service, Sap, TdmaTime, TetraAddress, assert_warn, unimplemented_log};
 use tetra_saps::control::brew::{BrewSubscriberAction, MmSubscriberUpdate};
 use tetra_saps::lmm::LmmMleUnitdataReq;
 use tetra_saps::{SapMsg, SapMsgInner};
@@ -13,6 +13,7 @@ use crate::mm::components::not_supported::make_ul_mm_pdu_function_not_supported;
 use tetra_pdus::mm::enums::energy_saving_mode::EnergySavingMode;
 use tetra_pdus::mm::enums::location_update_type::LocationUpdateType;
 use tetra_pdus::mm::enums::mm_pdu_type_ul::MmPduTypeUl;
+use tetra_pdus::mm::enums::reject_cause::RejectCause;
 use tetra_pdus::mm::enums::status_downlink::StatusDownlink;
 use tetra_pdus::mm::enums::status_uplink::StatusUplink;
 use tetra_pdus::mm::fields::energy_saving_information::EnergySavingInformation;
@@ -23,6 +24,7 @@ use tetra_pdus::mm::fields::group_identity_uplink::GroupIdentityUplink;
 use tetra_pdus::mm::pdus::d_attach_detach_group_identity_acknowledgement::DAttachDetachGroupIdentityAcknowledgement;
 use tetra_pdus::mm::pdus::d_location_update_accept::DLocationUpdateAccept;
 use tetra_pdus::mm::pdus::d_location_update_command::DLocationUpdateCommand;
+use tetra_pdus::mm::pdus::d_location_update_reject::DLocationUpdateReject;
 use tetra_pdus::mm::pdus::d_mm_status::DMmStatus;
 use tetra_pdus::mm::pdus::u_attach_detach_group_identity::UAttachDetachGroupIdentity;
 use tetra_pdus::mm::pdus::u_itsi_detach::UItsiDetach;
@@ -154,6 +156,28 @@ impl MmBs {
             }
         };
 
+        // Migration not supported: ETSI 16.4.1.1 case b) requires identity exchange via
+        // D-LOCATION-UPDATE-PROCEEDING which we don't implement. Reject with cause
+        // "Migration not supported" (12, Table 16.81) so the MS can act on it.
+        if pdu.location_update_type == LocationUpdateType::MigratingLocationUpdating
+            || pdu.location_update_type == LocationUpdateType::ServiceRestorationMigratingLocationUpdating
+        {
+            tracing::warn!(
+                "Rejecting migration request from SSI {}: {}",
+                prim.received_address.ssi,
+                pdu.location_update_type
+            );
+            Self::send_d_location_update_reject(
+                queue,
+                message.dltime,
+                prim.received_address.ssi,
+                prim.handle,
+                pdu.location_update_type,
+                pdu.address_extension,
+            );
+            return;
+        }
+
         // Check if we can satisfy this request, print unsupported stuff
         if !Self::feature_check_u_location_update_demand(&pdu) {
             tracing::error!("Unsupported critical features in ULocationUpdateDemand");
@@ -234,7 +258,7 @@ impl MmBs {
 
         // Build D-LOCATION UPDATE ACCEPT pdu
         let pdu_response = DLocationUpdateAccept {
-            location_update_accept_type: pdu.location_update_type, // Practically identical besides minor migration-related difference
+            location_update_accept_type: pdu.location_update_type,
             ssi: Some(issi as u64),
             address_extension: None,
             subscriber_class: None,
@@ -258,11 +282,6 @@ impl MmBs {
         tracing::debug!("-> {} sdu {}", pdu_response, sdu.dump_bin());
 
         // Build and submit response prim
-        let addr = TetraAddress {
-            encrypted: false,
-            ssi_type: SsiType::Ssi,
-            ssi: issi,
-        };
         let msg = SapMsg {
             sap: Sap::LmmSap,
             src: TetraEntity::Mm,
@@ -271,8 +290,8 @@ impl MmBs {
             msg: SapMsgInner::LmmMleUnitdataReq(LmmMleUnitdataReq {
                 sdu,
                 handle: prim.handle,
-                address: addr,
-                layer2service: Layer2Service::Todo,
+                address: TetraAddress::issi(issi),
+                layer2service: Layer2Service::Acknowledged,
                 stealing_permission: false,
                 stealing_repeats_flag: false,
                 encryption_flag: false,
@@ -489,11 +508,6 @@ impl MmBs {
         sdu.seek(0);
         tracing::debug!("-> {:?} sdu {}", pdu_response, sdu.dump_bin());
 
-        let addr = TetraAddress {
-            encrypted: false,
-            ssi_type: SsiType::Ssi,
-            ssi: issi,
-        };
         let msg = SapMsg {
             sap: Sap::LmmSap,
             src: TetraEntity::Mm,
@@ -502,8 +516,8 @@ impl MmBs {
             msg: SapMsgInner::LmmMleUnitdataReq(LmmMleUnitdataReq {
                 sdu,
                 handle: prim.handle,
-                address: addr,
-                layer2service: Layer2Service::Todo,
+                address: TetraAddress::issi(issi),
+                layer2service: Layer2Service::Acknowledged,
                 stealing_permission: false,
                 stealing_repeats_flag: false,
                 encryption_flag: false,
@@ -640,11 +654,6 @@ impl MmBs {
         sdu.seek(0);
         tracing::debug!("-> DLocationUpdateCommand sdu {}", sdu.dump_bin());
 
-        let addr = TetraAddress {
-            encrypted: false,
-            ssi_type: SsiType::Ssi,
-            ssi: issi,
-        };
         let msg = SapMsg {
             sap: Sap::LmmSap,
             src: TetraEntity::Mm,
@@ -653,8 +662,53 @@ impl MmBs {
             msg: SapMsgInner::LmmMleUnitdataReq(LmmMleUnitdataReq {
                 sdu,
                 handle,
-                address: addr,
-                layer2service: Layer2Service::Todo,
+                address: TetraAddress::issi(issi),
+                layer2service: Layer2Service::Acknowledged,
+                stealing_permission: false,
+                stealing_repeats_flag: false,
+                encryption_flag: false,
+                is_null_pdu: false,
+                tx_reporter: None,
+            }),
+        };
+        queue.push_back(msg);
+    }
+
+    /// Sends a D-LOCATION UPDATE REJECT PDU (ETSI clause 16.9.2.9)
+    fn send_d_location_update_reject(
+        queue: &mut MessageQueue,
+        dltime: TdmaTime,
+        issi: u32,
+        handle: u32,
+        location_update_type: LocationUpdateType,
+        address_extension: Option<u64>,
+    ) {
+        let pdu = DLocationUpdateReject {
+            location_update_type,
+            reject_cause: RejectCause::MigrationNotSupported as u8,
+            cipher_control: false,
+            ciphering_parameters: None,
+            // Echo back MNI if present, required for case b) per ETSI 16.4.1.1
+            address_extension,
+            cell_type_control: None,
+            proprietary: None,
+        };
+
+        let mut sdu = BitBuffer::new_autoexpand(16);
+        pdu.to_bitbuf(&mut sdu).unwrap();
+        sdu.seek(0);
+        tracing::debug!("-> {} sdu {}", pdu, sdu.dump_bin());
+
+        let msg = SapMsg {
+            sap: Sap::LmmSap,
+            src: TetraEntity::Mm,
+            dest: TetraEntity::Mle,
+            dltime,
+            msg: SapMsgInner::LmmMleUnitdataReq(LmmMleUnitdataReq {
+                sdu,
+                handle,
+                address: TetraAddress::issi(issi),
+                layer2service: Layer2Service::Acknowledged,
                 stealing_permission: false,
                 stealing_repeats_flag: false,
                 encryption_flag: false,
@@ -677,11 +731,6 @@ impl MmBs {
         sdu.seek(0);
         tracing::debug!("-> {} sdu {}", pdu, sdu.dump_bin());
 
-        let addr = TetraAddress {
-            encrypted: false,
-            ssi_type: SsiType::Ssi,
-            ssi: issi,
-        };
         let msg = SapMsg {
             sap: Sap::LmmSap,
             src: TetraEntity::Mm,
@@ -690,8 +739,8 @@ impl MmBs {
             msg: SapMsgInner::LmmMleUnitdataReq(LmmMleUnitdataReq {
                 sdu,
                 handle,
-                address: addr,
-                layer2service: Layer2Service::Todo,
+                address: TetraAddress::issi(issi),
+                layer2service: Layer2Service::Acknowledged,
                 stealing_permission: false,
                 stealing_repeats_flag: false,
                 encryption_flag: false,
