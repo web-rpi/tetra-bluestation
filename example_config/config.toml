@@ -149,9 +149,9 @@ voice_service = true
 # This overrides any settings in brew section, if enabled.
 # Also, incoming brew traffic on those rangges will be dropped
 # Range end is exclusive, so the range end number is NOT inside the ranges
-# local_ssi_ranges = [
-#     [0, 91],
-# ]
+local_ssi_ranges = [
+    [0, 91],
+]
 
 ###############################################################################
 
