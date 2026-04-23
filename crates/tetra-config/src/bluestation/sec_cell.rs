@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use std::collections::HashMap;
 
-use tetra_core::ranges::SortedDisjointSsiRanges;
+use tetra_core::ranges::{SortedDisjointSsiRanges, SsiRange};
 use toml::Value;
 
 #[derive(Debug, Clone)]
@@ -137,7 +137,14 @@ pub fn cell_dto_to_cfg(ci: CellInfoDto) -> CfgCellInfo {
         local_ssi_ranges: ci
             .local_ssi_ranges
             .map(SortedDisjointSsiRanges::from_vec_tuple)
-            .unwrap_or(SortedDisjointSsiRanges::from_vec_ssirange(vec![])),
+            .unwrap_or(default_tetrapack_local_ranges()),
         timezone: ci.timezone,
     }
+}
+
+/// Default local SSI ranges are defined as 0-90 (inclusive), which fits the TetraPack configuration.
+/// This helps prevent excessive flows of unroutable traffic to TetraPack, and can be overridden
+/// by users if needed.
+fn default_tetrapack_local_ranges() -> SortedDisjointSsiRanges {
+    SortedDisjointSsiRanges::from_vec_ssirange(vec![SsiRange::new(0, 90)])
 }

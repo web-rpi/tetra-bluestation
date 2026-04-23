@@ -74,9 +74,7 @@ impl SdsBsSubentity {
         } else if is_local_group {
             tracing::info!("SDS: group delivery: {} -> GSSI {}", source_ssi, dest_ssi);
             self.send_d_sds_data(queue, source_ssi, dest_ssi, SsiType::Gssi, pdu.user_defined_data);
-        } else if net_brew::feature_sds_enabled(&self.config)
-            && (net_brew::is_brew_issi_routable(&self.config, dest_ssi) || net_brew::is_tetrapack_sds_service_issi(&self.config, dest_ssi))
-        {
+        } else if net_brew::feature_sds_enabled(&self.config) {
             tracing::info!("SDS: forwarding to Brew: {} -> {}", source_ssi, dest_ssi);
             queue.push_back(SapMsg {
                 sap: Sap::Control,
@@ -197,9 +195,7 @@ impl SdsBsSubentity {
         if self.config.state_read().subscribers.is_registered(dest_ssi) {
             tracing::info!("SDS-STATUS: local delivery: {} -> {}", source_ssi, dest_ssi);
             self.send_d_status(queue, source_ssi, dest_ssi, pdu.pre_coded_status);
-        } else if net_brew::is_active(&self.config)
-            && (net_brew::is_brew_issi_routable(&self.config, dest_ssi) || net_brew::is_tetrapack_sds_service_issi(&self.config, dest_ssi))
-        {
+        } else if net_brew::is_active(&self.config) {
             // Brew forwarding only: when the pre-coded status carries an SDS-TL short report
             // (ETSI 29.4.2.3), convert it to a full SDS-TL REPORT PDU (Type4) so the
             // remote end recognizes it as a delivery confirmation. ETSI 29.3.3.4.4

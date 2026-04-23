@@ -735,16 +735,6 @@ impl BrewEntity {
             );
             return;
         }
-        // TODO: Check if local
-        // if dest_gssi == 9 {
-        //     tracing::debug!(
-        //         "BrewEntity: suppressing local call forwarding for TG 9 (call_id={} src={} ts={})",
-        //         call_id,
-        //         source_issi,
-        //         ts
-        //     );
-        //     return;
-        // }
 
         // If we're already forwarding on this timeslot, treat as a talker change/update
         if let Some(fwd) = self.ul_forwarded.get_mut(&ts) {
